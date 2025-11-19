@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 
+// Ensure this route is not statically generated
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET() {
   try {
     // Get backend URL from environment variable

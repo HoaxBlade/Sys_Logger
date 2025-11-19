@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Ensure this route is not statically generated
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ alertId: string }> }) {
   try {
     const { alertId } = await params;

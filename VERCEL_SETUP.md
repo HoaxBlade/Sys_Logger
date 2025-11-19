@@ -7,11 +7,13 @@ Your Vercel deployment requires the `NEXT_PUBLIC_API_URL` environment variable t
 ### Steps to Fix Production Issues:
 
 1. **Go to Vercel Dashboard:**
+
    - Visit https://vercel.com
    - Navigate to your project: `Sys_Logger` or `lab-monitoring`
    - Click on **Settings** → **Environment Variables**
 
 2. **Add Environment Variable:**
+
    - **Key:** `NEXT_PUBLIC_API_URL`
    - **Value:** `https://lab-monitoring-backend.onrender.com`
    - **Environment:** Select all (Production, Preview, Development)
@@ -26,6 +28,7 @@ Your Vercel deployment requires the `NEXT_PUBLIC_API_URL` environment variable t
 ### Verify Configuration:
 
 After redeploying, check:
+
 1. Open your live site (e.g., `https://lab-monitoring.nielitbhubaneswar.in`)
 2. Open browser DevTools (F12) → Console tab
 3. Look for any errors mentioning `NEXT_PUBLIC_API_URL`
@@ -36,6 +39,7 @@ After redeploying, check:
 Make sure your Render backend has the frontend domain in CORS_ORIGINS:
 
 **In Render Dashboard → Environment Variables:**
+
 ```
 CORS_ORIGINS=https://sys-logger.vercel.app,https://sys-logger-git-main.vercel.app,https://lab-monitoring.nielitbhubaneswar.in
 ```
@@ -43,14 +47,15 @@ CORS_ORIGINS=https://sys-logger.vercel.app,https://sys-logger-git-main.vercel.ap
 ### Troubleshooting:
 
 **If data still doesn't show:**
+
 1. Check Vercel deployment logs for errors
 2. Verify the environment variable is set correctly (no trailing slashes)
 3. Check Render backend logs to see if requests are arriving
 4. Verify CORS is configured correctly in Render
 
 **Common Issues:**
+
 - ❌ Missing `NEXT_PUBLIC_API_URL` → API routes return 500 errors
 - ❌ Wrong backend URL → Connection refused errors
 - ❌ CORS not configured → 403 Forbidden errors
 - ❌ Backend not running → Timeout errors
-

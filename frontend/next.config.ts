@@ -1,16 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  // Enable if deploying behind a reverse proxy
-  // async rewrites() {
-  //   return [
-  //     {
-  //       source: '/api/:path*',
-  //       destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/:path*`,
-  //     },
-  //   ];
-  // },
+  // Remove 'standalone' output for Vercel deployment
+  // 'standalone' is only needed for Docker/self-hosted deployments
+  // Vercel uses its own optimized build output
+  // output: 'standalone', // Commented out for Vercel
 };
 
 export default nextConfig;
