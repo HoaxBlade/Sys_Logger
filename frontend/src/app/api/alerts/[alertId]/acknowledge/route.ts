@@ -1,30 +1,55 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ alertId: string }> }) {
   try {
     const { alertId } = await params;
 
     if (!alertId) {
-      return new Response('Alert ID is required', { status: 400 });
+      return NextResponse.json(
+        { error: 'Alert ID is required' },
+        { status: 400 }
+      )
     }
 
-    const backendUrl = `http://localhost:5000/api/alerts/${alertId}/acknowledge`;
+    // Get backend URL from environment variable
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL
+
+    if (!apiUrl) {
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
+    }
+
+    const backendUrl = `${apiUrl}/api/alerts/${alertId}/acknowledge`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
 
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-    });
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
-      return new Response(response.statusText, { status: response.status });
+      return NextResponse.json(
+        { error: 'Failed to acknowledge alert' },
+        { status: response.status }
+      )
     }
 
-    const data = await response.json();
-    return Response.json(data);
+    const data = await response.json()
+    return NextResponse.json(data)
   } catch (error) {
-    console.error('Error acknowledging alert:', error);
-    return new Response('Internal Server Error', { status: 500 });
+    console.error('Error acknowledging alert:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }

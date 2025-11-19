@@ -6,11 +6,11 @@ export async function GET() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
     if (!apiUrl) {
-      console.warn('NEXT_PUBLIC_API_URL not set, returning empty alerts array')
+      console.warn('NEXT_PUBLIC_API_URL not set, returning empty array')
       return NextResponse.json([])
     }
 
-    const backendUrl = `${apiUrl}/api/alerts`
+    const backendUrl = `${apiUrl}/api/all-units-usage`
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000)
@@ -25,16 +25,15 @@ export async function GET() {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      // Return empty array instead of error status
-      console.warn(`Backend returned ${response.status} for alerts, returning empty array`)
+      console.warn(`Backend returned ${response.status} for all-units-usage, returning empty array`)
       return NextResponse.json([])
     }
 
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error fetching alerts:', error)
-    // Return empty array instead of error to prevent UI breaking
+    console.error('Error fetching all units usage:', error)
     return NextResponse.json([])
   }
 }
+

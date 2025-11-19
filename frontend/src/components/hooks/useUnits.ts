@@ -1,13 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Unit, Alert } from '../types'
 
 export const useUnits = () => {
   const [units, setUnits] = useState<Unit[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
+  const [isConnected] = useState(false)
 
   const fetchUnits = useCallback(async () => {
     try {
@@ -26,12 +25,16 @@ export const useUnits = () => {
     try {
       const response = await fetch('/api/alerts')
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        // Don't throw error, just log and set empty array
+        console.warn(`Failed to fetch alerts: ${response.status}`)
+        setAlerts([])
+        return
       }
       const result: Alert[] = await response.json()
       setAlerts(result)
     } catch (err) {
       console.error('Failed to fetch alerts:', err)
+      setAlerts([]) // Set empty array on error
     }
   }, [])
 
@@ -49,12 +52,7 @@ export const useUnits = () => {
     fetchUnits()
     fetchAlerts()
     connectWebSocket()
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
+    // No cleanup needed - HTTP polling doesn't require cleanup
   }, [fetchUnits, fetchAlerts, connectWebSocket])
 
   const acknowledgeAlert = useCallback(async (alertId: string) => {

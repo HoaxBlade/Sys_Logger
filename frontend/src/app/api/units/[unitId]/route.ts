@@ -8,12 +8,26 @@ export async function GET(
     const { unitId } = await params
 
     // Try both ports 5000 and 5001 for compatibility
-    const tryFetch = async (url: string): Promise<Response> => {
-      return fetch(`${url}/api/unit/${unitId}/usage`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+    const tryFetch = async (url: string): Promise<Response | null> => {
+      try {
+        // Create abort controller for timeout
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+
+        const response = await fetch(`${url}/api/unit/${unitId}/usage`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        })
+        
+        clearTimeout(timeoutId)
+        return response
+      } catch (err) {
+        // Connection errors (ECONNREFUSED, timeout, etc.)
+        console.warn(`Failed to connect to ${url}/api/unit/${unitId}/usage:`, err)
+        return null
+      }
     }
 
     let response: Response | null = null
@@ -25,32 +39,25 @@ export async function GET(
       // Try 5001 first, then fallback to 5000
       const ports = ['5001', '5000']
       for (const port of ports) {
-        try {
-          const apiUrl = `http://localhost:${port}`
-          response = await tryFetch(apiUrl)
-          if (response.ok) {
-            break
-          }
-        } catch {
-          continue
+        const apiUrl = `http://localhost:${port}`
+        response = await tryFetch(apiUrl)
+        if (response && response.ok) {
+          break
         }
       }
     }
 
+    // If no response or not ok, return empty object (no data available)
     if (!response || !response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch unit usage' },
-        { status: response?.status || 500 }
-      )
+      console.warn('Backend not available, returning empty unit usage data')
+      return NextResponse.json({})
     }
 
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
     console.error('Error fetching unit usage:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    // Return empty object instead of error to prevent UI breaking
+    return NextResponse.json({})
   }
 }

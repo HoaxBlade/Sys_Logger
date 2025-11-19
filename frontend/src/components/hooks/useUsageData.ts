@@ -1,6 +1,19 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { UsageData } from '../types'
 
+// Type for raw log data from backend API
+interface RawLogData {
+  timestamp: string
+  cpu: number
+  ram: number
+  gpu: string | number | object | null
+  gpu_load?: number
+  temperature?: number
+  network_rx?: number
+  network_tx?: number
+  unit_id?: string
+}
+
 interface UseUsageDataReturn {
   data: UsageData[]
   loading: boolean
@@ -19,50 +32,32 @@ export const useUsageData = (): UseUsageDataReturn => {
 
   const fetchData = useCallback(async () => {
     try {
-      // Try both ports 5000 and 5001 for compatibility
-      const tryFetch = async (url: string): Promise<Response> => {
-        const endpoint = selectedUnitId ? `/api/unit/${selectedUnitId}/usage` : '/api/all-units-usage'
-        return fetch(`${url}${endpoint}`, {
-          mode: 'cors',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        })
+      // Use Next.js API routes instead of direct backend calls
+      const endpoint = selectedUnitId 
+        ? `/api/units/${selectedUnitId}` 
+        : '/api/logs'
+
+      const response = await fetch(endpoint, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
       }
 
-      let response: Response | null = null
-      let apiUrl = ''
+      const logs: RawLogData[] = await response.json()
 
-      // If NEXT_PUBLIC_API_URL is set, use it
-      if (process.env.NEXT_PUBLIC_API_URL) {
-        apiUrl = process.env.NEXT_PUBLIC_API_URL
-        response = await tryFetch(apiUrl)
+      if (logs.length === 0) {
+        console.warn('No logs received from backend')
       } else {
-        // Try 5001 first, then fallback to 5000
-        const ports = ['5001', '5000']
-        for (const port of ports) {
-          try {
-            apiUrl = `http://localhost:${port}`
-            response = await tryFetch(apiUrl)
-            if (response.ok) {
-              break
-            }
-          } catch {
-            // Continue to next port
-            continue
-          }
-        }
+        console.log(`Received ${logs.length} log entries`)
       }
-
-      if (!response || !response.ok) {
-        const errorData = await response?.json().catch(() => ({}))
-        throw new Error(errorData.error || `HTTP error! status: ${response?.status || 'Connection failed'}`)
-      }
-
-      const logs: UsageData[] = await response.json()
 
       // Process GPU data to extract load for charting
-      const processedLogs = logs.map(log => {
+      const processedLogs: UsageData[] = logs.map(log => {
         let gpu_load = 0
 
         if (log.gpu_load !== undefined && log.gpu_load !== null) {
@@ -95,8 +90,9 @@ export const useUsageData = (): UseUsageDataReturn => {
 
         return {
           ...log,
-          gpu_load: gpu_load || 0
-        }
+          gpu_load: gpu_load || 0,
+          unit_id: log.unit_id || 'local' // Default to 'local' if unit_id is missing
+        } as UsageData
       })
 
       setData(processedLogs)
@@ -107,7 +103,7 @@ export const useUsageData = (): UseUsageDataReturn => {
       setError(`Failed to connect to backend. Make sure the backend is running. Error: ${err}`)
       setLoading(false)
     }
-  }, [])
+  }, [selectedUnitId])
 
   const filteredData = useMemo(() => {
     // When no unit is selected, return all units data (aggregated)

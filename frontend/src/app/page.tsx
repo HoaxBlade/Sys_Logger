@@ -5,13 +5,13 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { UsageGraph } from '../components/UsageGraph'
 import { useUsageData } from '../components/hooks/useUsageData'
 import { useUnits } from '../components/hooks/useUnits'
+import { Unit } from '../components/types'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
 
 export default function Dashboard() {
   const { data, loading, error, refetch, filteredData, setSelectedUnitId } = useUsageData()
-  const { units, loading: unitsLoading } = useUnits()
+  const { units } = useUnits()
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
-  const [switchingSource, setSwitchingSource] = useState(false)
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString()
