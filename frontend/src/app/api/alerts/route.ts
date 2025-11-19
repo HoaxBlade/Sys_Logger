@@ -6,8 +6,11 @@ export async function GET() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
     if (!apiUrl) {
-      console.warn('NEXT_PUBLIC_API_URL not set, returning empty alerts array')
-      return NextResponse.json([])
+      console.error('[API /api/alerts] NEXT_PUBLIC_API_URL environment variable is not set!')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
     }
 
     const backendUrl = `${apiUrl}/api/alerts`

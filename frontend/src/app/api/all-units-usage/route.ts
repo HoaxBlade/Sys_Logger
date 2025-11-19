@@ -6,8 +6,11 @@ export async function GET() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
     if (!apiUrl) {
-      console.warn('NEXT_PUBLIC_API_URL not set, returning empty array')
-      return NextResponse.json([])
+      console.error('[API /api/all-units-usage] NEXT_PUBLIC_API_URL environment variable is not set!')
+      return NextResponse.json(
+        { error: 'Backend URL not configured. Please set NEXT_PUBLIC_API_URL in Vercel environment variables.' },
+        { status: 500 }
+      )
     }
 
     const backendUrl = `${apiUrl}/api/all-units-usage`

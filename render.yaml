@@ -16,7 +16,7 @@ services:
       - key: FLASK_DEBUG
         value: "False"
       - key: CORS_ORIGINS
-        value: https://sys-logger.vercel.app,https://sys-logger-git-main.vercel.app
+        value: https://sys-logger.vercel.app,https://sys-logger-git-main.vercel.app,https://lab-monitoring.nielitbhubaneswar.in
       - key: LOG_FOLDER
         value: /tmp/usage_logs
       - key: LOG_RETENTION_DAYS

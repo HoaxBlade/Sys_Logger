@@ -36,7 +36,15 @@ export async function GET(
     if (process.env.NEXT_PUBLIC_API_URL) {
       response = await tryFetch(process.env.NEXT_PUBLIC_API_URL)
     } else {
-      // Try 5001 first, then fallback to 5000
+      // In production, we must have the env var set
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[API /api/units/[unitId]] NEXT_PUBLIC_API_URL not set in production!')
+        return NextResponse.json(
+          { error: 'Backend URL not configured. Please set NEXT_PUBLIC_API_URL in Vercel environment variables.' },
+          { status: 500 }
+        )
+      }
+      // Local development: Try 5001 first, then fallback to 5000
       const ports = ['5001', '5000']
       for (const port of ports) {
         const apiUrl = `http://localhost:${port}`
