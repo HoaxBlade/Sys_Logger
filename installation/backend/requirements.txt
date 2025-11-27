@@ -4,7 +4,6 @@ GPUtil
 pyinstaller
 flask
 flask-cors
-flask-socketio
 python-dotenv
 click
 werkzeug

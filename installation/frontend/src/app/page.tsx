@@ -10,8 +10,9 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 
 export default function Dashboard() {
   const { data, loading, error, refetch, filteredData, setSelectedUnitId } = useUsageData()
-  const { units } = useUnits()
+  const { units, loading: unitsLoading } = useUnits()
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
+  const [switchingSource, setSwitchingSource] = useState(false)
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString()
