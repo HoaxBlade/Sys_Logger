@@ -12,6 +12,10 @@ import socket
 import threading
 import uuid
 import pickle
+try:
+    import redis
+except ImportError:
+    redis = None
 import subprocess
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -39,11 +43,100 @@ else:
 app = Flask(__name__)
 
 # Global data structures for units, usage, and alerts
-units = {}  # Dictionary to store registered units
-unit_usage = {}  # Dictionary to store usage data per unit
-alerts = []  # List to store all alerts
+# Global data structures for units, usage, and alerts
+units = {}  # Dictionary to store registered units (Local Fallback)
+unit_usage = {}  # Dictionary to store usage data per unit (Local Fallback)
+alerts = []  # List to store all alerts (Local Fallback)
 ngrok_url = None  # Store ngrok tunnel URL
 ngrok_process = None  # Store ngrok process handle
+
+# Redis Configuration
+USE_REDIS = os.getenv('USE_REDIS', 'false').lower() == 'true'
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+redis_client = None
+
+if USE_REDIS and redis:
+    try:
+        redis_client = redis.from_url(REDIS_URL)
+        redis_client.ping()
+        print(f"Connected to Redis at {REDIS_URL}")
+    except Exception as e:
+        print(f"Failed to connect to Redis: {e}. Falling back to in-memory storage.")
+        USE_REDIS = False
+elif USE_REDIS and not redis:
+    print("Redis enabled but 'redis' library not installed. Falling back to in-memory storage.")
+    USE_REDIS = False
+
+class UnitStore:
+    """Abstract store for units and usage to switch between Memory and Redis"""
+    
+    @staticmethod
+    def get_unit(unit_id):
+        if USE_REDIS:
+            data = redis_client.hget('units', unit_id)
+            return json.loads(data) if data else None
+        return units.get(unit_id)
+
+    @staticmethod
+    def save_unit(unit_id, unit_data):
+        if USE_REDIS:
+            redis_client.hset('units', unit_id, json.dumps(unit_data))
+        else:
+            units[unit_id] = unit_data
+
+    @staticmethod
+    def delete_unit(unit_id):
+        if USE_REDIS:
+            redis_client.hdel('units', unit_id)
+            redis_client.delete(f'usage:{unit_id}')
+        else:
+            if unit_id in units: del units[unit_id]
+            if unit_id in unit_usage: del unit_usage[unit_id]
+
+    @staticmethod
+    def get_all_units():
+        if USE_REDIS:
+            raw_units = redis_client.hgetall('units')
+            return [json.loads(u) for u in raw_units.values()]
+        return list(units.values())
+
+    @staticmethod
+    def add_usage(unit_id, usage_data):
+        if USE_REDIS:
+            # Store as list in Redis, capped at 100
+            key = f'usage:{unit_id}'
+            redis_client.rpush(key, json.dumps(usage_data))
+            redis_client.ltrim(key, -100, -1)
+        else:
+            if unit_id not in unit_usage:
+                unit_usage[unit_id] = []
+            unit_usage[unit_id].append(usage_data)
+            if len(unit_usage[unit_id]) > 100:
+                unit_usage[unit_id] = unit_usage[unit_id][-100:]
+
+    @staticmethod
+    def get_usage(unit_id, limit=50):
+        if USE_REDIS:
+            raw_data = redis_client.lrange(f'usage:{unit_id}', -limit, -1)
+            return [json.loads(d) for d in raw_data]
+        return unit_usage.get(unit_id, [])[-limit:]
+
+    @staticmethod
+    def get_all_usage_grouped():
+        """Helper to get all usage for aggregation"""
+        if USE_REDIS:
+            all_usage = {}
+            # This is inefficient in Redis too without a time-series module, 
+            # but mimics the Python logic for Phase 2 compatibility.
+            # Phase 3 will replace this with SQL.
+            keys = redis_client.keys('usage:*')
+            for key in keys:
+                unit_id = key.decode().split(':')[1]
+                raw = redis_client.lrange(key, -100, -1)
+                all_usage[unit_id] = [json.loads(d) for d in raw]
+            return all_usage
+        return unit_usage
+
 
 # Load Flask debug flag early for use in functions
 FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
@@ -382,7 +475,8 @@ def health_check():
         'service': 'system-logger',
         'version': '1.0.0',
         'uptime': time.time() - _start_time if '_start_time' in globals() else 0,
-        'units_count': len(units),
+        #'units_count': len(units),
+        'units_count': len(UnitStore.get_all_units()),
         'alerts_count': len(alerts),
         'service_mode': len(sys.argv) > 1 and sys.argv[1] == '--service'
     }
@@ -435,8 +529,10 @@ def register_unit():
         unit_id = str(uuid.uuid4())[:8]
 
         # Check if already registered - use existing unit_id if found
-        for existing_unit_id, existing_unit in units.items():
+        all_units = UnitStore.get_all_units()
+        for existing_unit in all_units:
             if existing_unit['system_id'] == system_id:
+                existing_unit_id = existing_unit['id']
                 existing_unit['last_seen'] = datetime.now().isoformat()
                 existing_unit['status'] = 'online'
                 # Update unit info if provided
@@ -452,6 +548,8 @@ def register_unit():
                     existing_unit['gpu_info'] = gpu_info
                 if network_interfaces != '{}':
                     existing_unit['network_interfaces'] = network_interfaces
+                
+                UnitStore.save_unit(existing_unit_id, existing_unit)
                 return jsonify({'unit_id': existing_unit_id}), 200
 
         # Create new unit only if system_id not found
@@ -470,13 +568,13 @@ def register_unit():
             'alerts': []
         }
 
-        units[unit_id] = unit
-        unit_usage[unit_id] = []
+        UnitStore.save_unit(unit_id, unit)
+        # unit_usage initialized via add_usage method
 
         print(f"Unit registered: {unit_id} ({hostname})")
 
         # Broadcast unit update via WebSocket
-        socketio.emit('units_update', list(units.values()))
+        socketio.emit('units_update', UnitStore.get_all_units())
 
         return jsonify({'unit_id': unit_id}), 201
 
@@ -503,17 +601,22 @@ def submit_usage():
 
         # Find unit by system_id
         unit_id = None
-        for uid, unit in units.items():
+        current_unit = None
+        all_units = UnitStore.get_all_units()
+        for unit in all_units:
             if unit['system_id'] == system_id:
-                unit_id = uid
+                unit_id = unit['id']
+                current_unit = unit
                 break
 
         if not unit_id:
             return jsonify({'error': 'Unit not registered'}), 404
 
         # Update unit status
-        units[unit_id]['last_seen'] = datetime.now().isoformat()
-        units[unit_id]['status'] = 'online'
+        if current_unit:
+            current_unit['last_seen'] = datetime.now().isoformat()
+            current_unit['status'] = 'online'
+            UnitStore.save_unit(unit_id, current_unit)
 
         # Store usage data
         usage_entry = {
@@ -526,11 +629,7 @@ def submit_usage():
             'network_rx': network_rx,
             'network_tx': network_tx
         }
-        unit_usage[unit_id].append(usage_entry)
-
-        # Keep only last 100 entries per unit
-        if len(unit_usage[unit_id]) > 100:
-            unit_usage[unit_id] = unit_usage[unit_id][-100:]
+        UnitStore.add_usage(unit_id, usage_entry)
 
         # Check for alerts
         new_alerts = []
@@ -578,7 +677,7 @@ def submit_usage():
         alerts.extend(new_alerts)
 
         # Broadcast updates via WebSocket
-        socketio.emit('units_update', list(units.values()))
+        socketio.emit('units_update', UnitStore.get_all_units())
         if new_alerts:
             socketio.emit('alerts_update', alerts)
 
@@ -594,7 +693,7 @@ def submit_usage():
 def get_units():
     """Get all registered units"""
     try:
-        return jsonify(list(units.values())), 200
+        return jsonify(UnitStore.get_all_units()), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -623,9 +722,10 @@ def acknowledge_alert(alert_id):
 def get_unit(unit_id):
     """Get a specific unit by ID"""
     try:
-        if unit_id not in units:
+        unit = UnitStore.get_unit(unit_id)
+        if not unit:
             return jsonify({'error': 'Unit not found'}), 404
-        return jsonify(units[unit_id]), 200
+        return jsonify(unit), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -633,21 +733,21 @@ def get_unit(unit_id):
 def update_unit(unit_id):
     """Update unit information (e.g., custom name)"""
     try:
-        if unit_id not in units:
+        unit = UnitStore.get_unit(unit_id)
+        if not unit:
             return jsonify({'error': 'Unit not found'}), 404
 
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No update data provided'}), 400
 
-        unit = units[unit_id]
-
         # Allow updating name (custom name)
         if 'name' in data:
             unit['name'] = data['name']
+            UnitStore.save_unit(unit_id, unit)
 
         # Broadcast unit update via WebSocket
-        socketio.emit('units_update', list(units.values()))
+        socketio.emit('units_update', UnitStore.get_all_units())
 
         return jsonify(unit), 200
     except Exception as e:
@@ -657,16 +757,15 @@ def update_unit(unit_id):
 def delete_unit(unit_id):
     """Remove a unit"""
     try:
-        if unit_id not in units:
+        unit = UnitStore.get_unit(unit_id)
+        if not unit:
             return jsonify({'error': 'Unit not found'}), 404
 
         # Remove from units and unit_usage dictionaries
-        del units[unit_id]
-        if unit_id in unit_usage:
-            del unit_usage[unit_id]
+        UnitStore.delete_unit(unit_id)
 
         # Broadcast unit update via WebSocket
-        socketio.emit('units_update', list(units.values()))
+        socketio.emit('units_update', UnitStore.get_all_units())
 
         return jsonify({'status': 'success', 'message': f'Unit {unit_id} deleted'}), 200
     except Exception as e:
@@ -676,14 +775,14 @@ def delete_unit(unit_id):
 def update_unit_status(unit_id):
     """Enable/disable monitoring for a unit"""
     try:
-        if unit_id not in units:
+        unit = UnitStore.get_unit(unit_id)
+        if not unit:
             return jsonify({'error': 'Unit not found'}), 404
 
         data = request.get_json()
         if not data or 'monitoring_enabled' not in data:
             return jsonify({'error': 'monitoring_enabled field required'}), 400
 
-        unit = units[unit_id]
         monitoring_enabled = data['monitoring_enabled']
 
         # Initialize monitoring_enabled if not present
@@ -696,9 +795,11 @@ def update_unit_status(unit_id):
         if not monitoring_enabled:
             unit['status'] = 'offline'
         # If re-enabling, check if recently seen - for simplicity keep as is
+        
+        UnitStore.save_unit(unit_id, unit)
 
         # Broadcast unit update via WebSocket
-        socketio.emit('units_update', list(units.values()))
+        socketio.emit('units_update', UnitStore.get_all_units())
 
         return jsonify(unit), 200
     except Exception as e:
@@ -708,12 +809,11 @@ def update_unit_status(unit_id):
 def get_unit_usage(unit_id):
     """Get usage data for a specific unit"""
     try:
-        if unit_id not in unit_usage:
-            return jsonify([]), 200
+        usage_data = UnitStore.get_usage(unit_id, limit=50)
 
         # Format data to match the expected format (add gpu_load for compatibility)
         formatted_data = []
-        for usage in unit_usage[unit_id][-50:]:  # Last 50 entries
+        for usage in usage_data:
             formatted_entry = dict(usage)
             # Ensure gpu_load is set for frontend compatibility
             if 'gpu' in formatted_entry and 'gpu_load' not in formatted_entry:
@@ -731,7 +831,8 @@ def get_all_units_usage():
         # Dictionary to aggregate data by timestamp
         aggregated_data = {}
 
-        for unit_id, usages in unit_usage.items():
+        all_usages = UnitStore.get_all_usage_grouped()
+        for unit_id, usages in all_usages.items():
             for usage in usages[-100:]:  # Look at last 100 entries per unit
                 timestamp = usage.get('timestamp')
                 if not timestamp:
