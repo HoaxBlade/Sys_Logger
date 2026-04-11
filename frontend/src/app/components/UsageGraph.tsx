@@ -175,7 +175,7 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
   const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 400, easing: 'easeOutQuart' as const },
+    animation: false as const,
     plugins: {
       legend: { display: false },
       tooltip: {

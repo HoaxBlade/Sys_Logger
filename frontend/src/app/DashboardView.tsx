@@ -1331,7 +1331,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="flex-1 relative bg-zinc-50/50 rounded-2xl ring-1 ring-zinc-100 p-4">
+                                            <div className="flex-1 min-h-0 relative bg-zinc-50/50 rounded-2xl ring-1 ring-zinc-100 p-4">
                                                 <UsageGraph data={usageData} metric={selectedMetric} className="h-full" />
                                             </div>
                                         </div>
