@@ -175,7 +175,7 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
   const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    animation: false as const,
+    animation: { duration: 400, easing: 'easeOutQuart' as const },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -291,7 +291,7 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
         ))}
       </div>
       <div className="flex-1 min-h-0 relative">
-        <Line ref={chartRef} data={chartData} options={chartOptions} />
+        <Line key={selectedTimeRange} ref={chartRef} data={chartData} options={chartOptions} />
       </div>
     </div>
   )
