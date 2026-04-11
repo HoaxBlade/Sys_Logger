@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Brush
 } from 'recharts';
 import { 
   Activity, Shield, Download, Printer, ArrowLeft, AlertCircle, CheckCircle2, 
@@ -186,10 +186,14 @@ export default function NodeReportPage() {
           </div>
           
           <div className="flex items-center gap-8">
-            <div className="hidden lg:flex items-center gap-4 mr-8 border-r border-zinc-100 pr-8">
-               <img src="/krishishayogi.png" alt="Logo" className="h-12 lg:h-14 object-contain mix-blend-multiply" />
-               <img src="/Nielit_logo.jpeg" alt="Logo" className="h-14 object-contain mix-blend-multiply" />
-               <img src="/India-AI_logo.jpeg" alt="Logo" className="h-14 object-contain mix-blend-multiply" />
+            <div className="hidden lg:flex items-center gap-6 mr-8 border-r border-zinc-100 pr-8">
+               <img src="/krishishayogi.png" alt="Logo" className="h-16 lg:h-20 object-contain mix-blend-multiply scale-125" />
+               <img src="/Nielit_logo.jpeg" alt="Logo" className="h-14 lg:h-16 object-contain mix-blend-multiply" />
+               <img src="/India-AI_logo.jpeg" alt="Logo" className="h-14 lg:h-16 object-contain mix-blend-multiply" />
+               <div className="flex flex-col justify-center ml-2 border-l border-zinc-100 pl-6">
+                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1.5">Built by</span>
+                   <span className="text-sm font-black text-orange-600 uppercase tracking-tighter leading-none">Krishi Sahayogi</span>
+               </div>
             </div>
             <div className="text-right">
               <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Health Score</p>
@@ -295,7 +299,7 @@ export default function NodeReportPage() {
                   <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
                     <div style={{ width: Math.max(100, (data.timeline.length / 100) * 10) + '%' }} className="h-[250px] min-w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart syncId="audit-charts" data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#f97316" stopOpacity={0.1}/>
@@ -344,7 +348,7 @@ export default function NodeReportPage() {
                   <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
                     <div style={{ width: Math.max(100, (data.timeline.length / 100) * 10) + '%' }} className="h-[250px] min-w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart syncId="audit-charts" data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id="colorRam" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
@@ -385,7 +389,7 @@ export default function NodeReportPage() {
                   <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
                     <div style={{ width: Math.max(100, (data.timeline.length / 100) * 10) + '%' }} className="h-[250px] min-w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart syncId="audit-charts" data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id="colorGpu" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#ec4899" stopOpacity={0.1}/>
@@ -426,7 +430,7 @@ export default function NodeReportPage() {
                   <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
                     <div style={{ width: Math.max(100, (data.timeline.length / 100) * 10) + '%' }} className="h-[300px] min-w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart syncId="audit-charts" data={data.timeline} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id="colorRx" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
@@ -450,6 +454,13 @@ export default function NodeReportPage() {
                           <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '10px', fontWeight: 'bold'}} />
                           <Area type="monotone" dataKey="network_rx_mb" name="Download (RX)" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorRx)" animationDuration={500} connectNulls />
                           <Area type="monotone" dataKey="network_tx_mb" name="Upload (TX)" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorTx)" animationDuration={500} connectNulls />
+                          <Brush 
+                            dataKey="timestamp" 
+                            height={40} 
+                            stroke="#52525B" 
+                            fill="#FAFAFA"
+                            tickFormatter={(val) => new Date(val).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>

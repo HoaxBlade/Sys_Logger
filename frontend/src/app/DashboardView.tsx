@@ -533,15 +533,15 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
                 {/* Branding in Header */}
                 <div className="hidden xl:flex items-center gap-6 px-6 border-l border-zinc-100 ml-6">
-                    <div className="flex items-center gap-4">
-                        <img src="/krishishayogi.png" alt="Krishi Sahayogi" className="h-10 lg:h-11 object-contain mix-blend-multiply" />
-                        <div className="h-10 w-[1px] bg-zinc-100" />
-                        <img src="/Nielit_logo.jpeg" alt="NIELIT" className="h-11 object-contain mix-blend-multiply" />
-                        <img src="/India-AI_logo.jpeg" alt="India AI" className="h-11 object-contain mix-blend-multiply" />
+                    <div className="flex items-center gap-6">
+                        <img src="/krishishayogi.png" alt="Krishi Sahayogi" className="h-16 lg:h-20 object-contain mix-blend-multiply scale-125" />
+                        <div className="h-12 w-[1px] bg-zinc-100" />
+                        <img src="/Nielit_logo.jpeg" alt="NIELIT" className="h-12 object-contain mix-blend-multiply" />
+                        <img src="/India-AI_logo.jpeg" alt="India AI" className="h-12 object-contain mix-blend-multiply" />
                     </div>
-                    <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1">Built by</span>
-                        <span className="text-[10px] font-black text-orange-600 uppercase tracking-tighter leading-none">Krishi Sahayogi</span>
+                    <div className="flex flex-col justify-center">
+                        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1.5">Built by</span>
+                        <span className="text-sm font-black text-orange-600 uppercase tracking-tighter leading-none">Krishi Sahayogi</span>
                     </div>
                 </div>
             </header>
