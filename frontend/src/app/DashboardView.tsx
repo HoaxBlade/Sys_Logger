@@ -1135,17 +1135,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     <div className="flex-1 w-full">
                                         {isEditing ? (
                                             <div className="flex flex-col gap-3 lg:gap-4 w-full">
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">
-                                                    <div>
-                                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 block">Organization ID</label>
-                                                        <input
-                                                            type="text"
-                                                            value={editModeData.org_id}
-                                                            onChange={(e) => setEditModeData({ ...editModeData, org_id: e.target.value })}
-                                                            className="w-full bg-zinc-50 ring-1 ring-zinc-200 rounded-xl p-3 text-sm font-bold text-zinc-800 focus:ring-orange-500 outline-none transition-all"
-                                                        />
-                                                    </div>
-                                                    <div>
+                                                <div className="flex flex-col gap-3 lg:gap-4 relative">
+                                                    <div className="w-full">
                                                         <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 block">Computer ID</label>
                                                         <input
                                                             type="text"
