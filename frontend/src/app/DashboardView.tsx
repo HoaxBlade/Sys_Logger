@@ -613,7 +613,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 </div>
             </header>
 
-            <div className="flex flex-1 overflow-hidden gap-6 relative z-10 h-full">
+            <div className="flex flex-1 overflow-hidden gap-6 relative z-10 min-w-0 min-h-0">
 
                 <AnimatePresence>
                     {isMobileMenuOpen && (
@@ -1184,7 +1184,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     )}
                 </AnimatePresence>
 
-                <main className="flex-1 flex flex-col relative overflow-hidden w-full h-full">
+                <main className="flex-1 flex flex-col relative overflow-hidden w-full min-h-0">
                     <AnimatePresence mode="wait">
                         {activeTab === 'management' ? (
                             <motion.div
@@ -1233,40 +1233,43 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         ) : (
                                             <>
                                                 <div className="flex flex-wrap items-center gap-3 lg:gap-4 mb-2 lg:mb-0">
-                                                    <h2 className="text-2xl lg:text-3xl font-black text-zinc-900 tracking-tight uppercase truncate max-w-full">{selectedUnit.name.split('/').pop()}</h2>
-                                                    <div className={cn("px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-widest", selectedUnit.status === 'online' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200/50' : 'bg-red-50 text-red-600 ring-1 ring-red-200/50')}>
+                                                    <h2 className="text-3xl lg:text-4xl font-black text-zinc-900 tracking-tighter uppercase truncate max-w-full leading-none">{selectedUnit.name.split('/').pop()}</h2>
+                                                    <div className={cn(
+                                                        "px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1",
+                                                        selectedUnit.status === 'online' 
+                                                            ? 'bg-emerald-50 text-emerald-600 ring-emerald-200/50' 
+                                                            : 'bg-red-50 text-red-600 ring-red-200/50'
+                                                    )}>
                                                         {selectedUnit.status}
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-4 lg:gap-6 mt-2 lg:mt-3 text-xs font-bold text-zinc-500">
-                                                    <span className="flex items-center gap-2 pr-4 lg:pr-6 border-r border-zinc-200"><Globe className="w-4 h-4 text-zinc-400" /> {selectedUnit.ip}</span>
-                                                    <span className="flex items-center gap-2"><Database className="w-4 h-4 text-zinc-400" /> <span className="truncate max-w-[150px] sm:max-w-none">{selectedUnit.id}</span></span>
+                                                <div className="flex flex-wrap items-center gap-6 mt-3 text-[11px] font-bold text-zinc-400">
+                                                    <span className="flex items-center gap-2 pr-6 border-r border-zinc-100 uppercase tracking-widest"><Globe className="w-4 h-4 text-zinc-300" /> {selectedUnit.ip || 'DISCONNECTED'}</span>
+                                                    <span className="flex items-center gap-2 uppercase tracking-widest font-mono"><Database className="w-4 h-4 text-zinc-300" /> {selectedUnit.id}</span>
                                                 </div>
                                             </>
                                         )}
                                     </div>
 
-                                    <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between w-full lg:w-auto gap-4 lg:gap-4 border-t lg:border-t-0 border-zinc-100 pt-4 lg:pt-0 mt-2 lg:mt-0">
-                                        <div className="flex gap-2 lg:gap-2.5">
+                                    <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between w-full lg:w-auto gap-4 lg:gap-5 border-t lg:border-t-0 border-zinc-100 pt-5 lg:pt-0 mt-3 lg:mt-0">
+                                        <div className="flex items-center gap-2 bg-zinc-50/50 p-1.5 rounded-2xl ring-1 ring-zinc-200/50 shadow-inner">
                                             {!isEditing && (
-                                                <button onClick={() => { setEditModeData({ org_id: selectedUnit.org_id || '', comp_id: selectedUnit.comp_id || '' }); setIsEditing(true); }} className="p-2.5 lg:p-3 bg-white ring-1 ring-zinc-200/80 hover:bg-orange-50 hover:ring-orange-200 hover:text-orange-600 text-zinc-400 rounded-xl transition-all shadow-sm" title="Edit Identity">
+                                                <button onClick={() => { setEditModeData({ org_id: selectedUnit.org_id || '', comp_id: selectedUnit.comp_id || '' }); setIsEditing(true); }} className="p-3 bg-white hover:bg-orange-50 hover:text-orange-600 text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20" title="Edit Identity">
                                                     <Pencil className="w-4 h-4" />
                                                 </button>
                                             )}
-                                            <button onClick={handleDeleteUnit} disabled={isDeleting} className="p-2.5 lg:p-3 bg-white ring-1 ring-zinc-200/80 hover:bg-red-50 hover:ring-red-200 hover:text-red-600 text-zinc-400 rounded-xl transition-all shadow-sm disabled:opacity-50" title="Delete Node">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                            <button onClick={() => handleGenerateLink(selectedUnit.comp_id || selectedUnit.name.split('/').pop() || '')} disabled={isDownloading} className="p-2.5 lg:p-3 bg-white ring-1 ring-zinc-200/80 hover:bg-blue-50 hover:ring-blue-200 hover:text-blue-600 text-zinc-400 rounded-xl transition-all shadow-sm disabled:opacity-50" title="Get Installer Link">
+                                            <button onClick={() => handleGenerateLink(selectedUnit.comp_id || selectedUnit.name.split('/').pop() || '')} disabled={isDownloading} className="p-3 bg-white hover:bg-blue-50 hover:text-blue-600 text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20 disabled:opacity-50" title="Get Installer Link">
                                                 <Globe className="w-4 h-4" />
                                             </button>
-                                            <div className="hidden lg:block w-[1px] h-10 bg-zinc-200 mx-2 self-center" />
-                                            <button onClick={handleCustomDownload} className="flex items-center gap-2 px-4 lg:px-5 py-2.5 lg:py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl transition-all shadow-md active:scale-95">
+                                            <button onClick={handleDeleteUnit} disabled={isDeleting} className="p-3 bg-white hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20 disabled:opacity-50" title="Remove Node">
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                            <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
+                                            <button onClick={handleCustomDownload} className="flex items-center gap-2 px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl transition-all shadow-lg active:scale-95">
                                                 <Download className="w-4 h-4" />
-                                                <span className="hidden sm:inline text-[11px] font-black uppercase tracking-widest">Export</span>
+                                                <span className="hidden sm:inline text-[11px] font-black uppercase tracking-[0.2em]">Export Data</span>
                                             </button>
                                         </div>
-
-
                                     </div>
                                 </div>
 
@@ -1366,34 +1369,61 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     </div>
                                 ) : activeTab === 'metrics' ? (
                                     <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 pb-4 lg:pb-6 flex-1 min-h-0">
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-3 lg:gap-4 shrink-0 lg:w-48 xl:w-56 overflow-y-auto custom-scrollbar p-1">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-4 shrink-0 lg:w-48 xl:w-56 overflow-y-auto custom-scrollbar p-1">
                                             {currentMetrics.map((metric) => (
-                                                <button key={metric.id} onClick={() => setSelectedMetric(metric.id as any)} className={cn("p-4 lg:p-5 text-left rounded-2xl transition-all duration-300 flex flex-col justify-between items-start group relative z-0", selectedMetric === metric.id ? 'bg-white ring-2 ring-orange-500 shadow-[0_4px_15px_rgba(249,115,22,0.15)] scale-[1.02] z-10' : 'bg-white ring-1 ring-zinc-200/80 hover:ring-zinc-300 hover:shadow-md hover:-translate-y-0.5')}>
-                                                    <div className="flex items-center justify-between w-full mb-3">
-                                                        <div className={cn("p-2 rounded-xl transition-colors", selectedMetric === metric.id ? 'bg-orange-50 text-orange-600' : 'bg-zinc-50 text-zinc-400 group-hover:text-zinc-600')}>
+                                                <button 
+                                                    key={metric.id} 
+                                                    onClick={() => setSelectedMetric(metric.id as any)} 
+                                                    className={cn(
+                                                        "p-5 text-left rounded-[2rem] transition-all duration-500 flex flex-col justify-between items-start group relative transition-all",
+                                                        selectedMetric === metric.id 
+                                                            ? 'bg-white/80 ring-2 ring-orange-500 shadow-[0_20px_40px_rgba(249,115,22,0.15)] scale-[1.03] z-10' 
+                                                            : 'bg-white/40 backdrop-blur-md ring-1 ring-white/60 hover:ring-white hover:bg-white/60 hover:shadow-xl hover:-translate-y-1'
+                                                    )}
+                                                >
+                                                    <div className="flex items-center justify-between w-full mb-4">
+                                                        <div className={cn(
+                                                            "p-2.5 rounded-2xl transition-all duration-500",
+                                                            selectedMetric === metric.id 
+                                                                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
+                                                                : 'bg-zinc-100 text-zinc-400 group-hover:bg-white group-hover:text-zinc-600'
+                                                        )}>
                                                             {metric.icon}
                                                         </div>
-                                                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{metric.title}</span>
+                                                        <span className={cn(
+                                                            "text-[9px] font-black uppercase tracking-[0.2em] transition-colors",
+                                                            selectedMetric === metric.id ? 'text-orange-600' : 'text-zinc-400'
+                                                        )}>{metric.title}</span>
                                                     </div>
-                                                    <div>
-                                                        <p className={cn("font-bold tracking-tight mb-1", selectedMetric === metric.id ? 'text-zinc-900' : 'text-zinc-600')}>{metric.label}</p>
-                                                        <p className="text-xl font-black font-mono text-zinc-900 tracking-tighter">
-                                                            {metric.value} <span className="text-[10px] text-zinc-400 tracking-widest uppercase">{metric.unit}</span>
+                                                    <div className="space-y-1">
+                                                        <p className={cn(
+                                                            "text-xs font-black uppercase tracking-widest transition-colors",
+                                                            selectedMetric === metric.id ? 'text-zinc-900' : 'text-zinc-500'
+                                                        )}>{metric.label}</p>
+                                                        <p className="text-2xl font-black font-mono text-zinc-900 tracking-tighter">
+                                                            {metric.value} <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest ml-1">{metric.unit}</span>
                                                         </p>
                                                     </div>
+
+                                                    {selectedMetric === metric.id && (
+                                                        <motion.div 
+                                                            layoutId="metric-glow"
+                                                            className="absolute inset-x-0 -bottom-px h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent blur-sm" 
+                                                        />
+                                                    )}
                                                 </button>
                                             ))}
                                         </div>
-                                        <div className="flex-1 bg-white p-6 lg:p-8 rounded-2xl lg:rounded-3xl ring-1 ring-zinc-200/80 shadow-sm flex flex-col min-h-[400px] lg:min-h-0">
-                                            <div className="flex justify-between items-end mb-6">
-                                                <div>
-                                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-1">Live Telemetry Stream</h3>
-                                                    <h2 className="text-xl lg:text-2xl font-black text-zinc-900 tracking-widest uppercase">{activeMetricData?.label}</h2>
+                                        <div className="flex-1 bg-white/40 backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white shadow-xl flex flex-col min-w-0 min-h-0 transition-all duration-500 hover:shadow-2xl">
+                                            <div className="flex justify-between items-end mb-8">
+                                                <div className="space-y-1">
+                                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Live Telemetry Analysis</h3>
+                                                    <h2 className="text-2xl lg:text-3xl font-black text-zinc-900 tracking-tighter uppercase leading-none">{activeMetricData?.label}</h2>
                                                 </div>
-                                                <div className="text-right bg-zinc-50 px-4 py-2 rounded-xl ring-1 ring-zinc-100">
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 block mb-0.5">Current Value</span>
-                                                    <span className="text-2xl font-black font-mono text-zinc-900 tracking-tighter">
-                                                        {activeMetricData?.value} <span className="text-xs text-zinc-500">{activeMetricData?.unit}</span>
+                                                <div className="text-center bg-white/60 backdrop-blur-md px-8 py-4 rounded-[2rem] ring-1 ring-white/50 shadow-sm min-w-[140px]">
+                                                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 block mb-1">Live Telemetry</span>
+                                                    <span className="text-3xl font-black font-mono text-zinc-900 tracking-tighter leading-none">
+                                                        {activeMetricData?.value}<span className="text-xs text-zinc-400 font-bold uppercase ml-1">{activeMetricData?.unit}</span>
                                                     </span>
                                                 </div>
                                             </div>

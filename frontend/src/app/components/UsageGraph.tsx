@@ -180,30 +180,31 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
       legend: { display: false },
       tooltip: {
         enabled: true,
-        backgroundColor: '#18181b', // zinc-900
-        titleColor: '#a1a1aa', // zinc-400
+        backgroundColor: '#09090b', // zinc-950
+        titleColor: '#71717a', // zinc-500
         bodyColor: '#ffffff',
-        titleFont: { size: 10, weight: 600 as any },
-        bodyFont: { size: 13, family: 'monospace', weight: 700 as any },
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        titleFont: { size: 9, weight: 800 as any, family: 'Inter' },
+        bodyFont: { size: 12, family: 'monospace', weight: 400 as any },
+        borderColor: 'rgba(255, 255, 255, 0.08)',
         borderWidth: 1,
-        cornerRadius: 8,
-        padding: 12,
+        cornerRadius: 12,
+        padding: 16,
         displayColors: false,
+        usePointStyle: true,
         callbacks: {
           title: (context: TooltipItem<'line'>[]) => {
             const index = context[0].dataIndex
             const dataPoint = filteredData[index]
             if (!dataPoint?.timestamp) return 'UPLINK LOST'
-            return new Date(dataPoint.timestamp).toLocaleString()
+            return new Date(dataPoint.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           },
           label: (context: TooltipItem<'line'>) => {
             const value = context.parsed.y
-            if (value === null || value === undefined) return '➤ DATA UNAVAILABLE'
+            if (value === null || value === undefined) return 'DATA UNAVAILABLE'
             const unit = (metric === 'cpu' || metric === 'ram' || metric === 'gpu') ? '%' :
               (metric === 'temperature') ? '°C' : ' MB/s'
-            const precision = (metric === 'network_rx' || metric === 'network_tx') ? 3 : 1
-            return `➤ ${value.toFixed(precision)}${unit}`
+            const precision = (metric === 'network_rx' || metric === 'network_tx') ? 2 : 1
+            return `${value.toFixed(precision)}${unit}`
           },
         },
       },
@@ -213,15 +214,16 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
         display: true,
         grid: { 
           display: true,
-          color: 'rgba(0, 0, 0, 0.04)', // Light grey grid lines
+          color: 'rgba(0, 0, 0, 0.03)', 
           drawTicks: false,
+          lineWidth: 1
         },
         ticks: {
-          color: '#a1a1aa', // zinc-400
+          color: '#a1a1aa',
           font: { size: 9, family: 'monospace', weight: 600 as any },
           maxRotation: 0,
-          maxTicksLimit: 6, // Prevents X axis from getting cluttered
-          padding: 8
+          maxTicksLimit: 8,
+          padding: 12
         },
         border: { display: false }
       },
@@ -230,17 +232,17 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
         beginAtZero: true,
         grid: { 
           display: true,
-          color: 'rgba(0, 0, 0, 0.04)', // Light grey grid lines
+          color: 'rgba(0, 0, 0, 0.03)',
           drawTicks: false,
         },
         ticks: {
-          color: '#a1a1aa', // zinc-400
+          color: '#a1a1aa',
           font: { size: 10, family: 'monospace', weight: 600 as any },
           maxTicksLimit: 6,
-          padding: 12,
+          padding: 16,
           callback: (value: any) => {
             if (metric === 'cpu' || metric === 'ram' || metric === 'gpu') return `${value}%`
-            if (metric === 'network_rx' || metric === 'network_tx') return `${value} MB/s`
+            if (metric === 'network_rx' || metric === 'network_tx') return `${value}MB/s`
             return value
           }
         },
@@ -274,16 +276,16 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      <div className="flex flex-wrap gap-2 p-1.5 bg-zinc-100/50 backdrop-blur-md rounded-2xl w-fit mb-6 border border-zinc-200/50 shadow-inner">
         {['30s', '1m', '5m', '15m', '30m', '1h', '6h', '1d'].map((range) => (
           <button
             key={range}
             onClick={() => setSelectedTimeRange(range as TimeRange)}
             className={cn(
-              "px-2.5 py-1 text-[9px] font-black rounded-lg transition-all uppercase tracking-widest border",
+              "px-4 py-1.5 text-[9px] font-black rounded-xl transition-all uppercase tracking-widest",
               selectedTimeRange === range
-                ? 'bg-orange-50 text-orange-600 border-orange-200 shadow-sm'
-                : 'bg-white text-zinc-400 border-zinc-200/80 hover:text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300'
+                ? 'bg-white text-orange-600 shadow-sm ring-1 ring-zinc-200'
+                : 'text-zinc-400 hover:text-zinc-600'
             )}
           >
             {range}
