@@ -641,22 +641,23 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     </div>
                 </div>
 
-                <div className="flex flex-col items-end">
-                    <div className="flex items-center gap-1.5 lg:gap-2 text-zinc-800 font-mono font-bold text-sm lg:text-base tracking-tight">
-                        <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                        {currentTime}
-                    </div>
-                    <span className="text-[9px] text-green-600 flex items-center gap-1.5 font-bold uppercase tracking-[0.1em] mt-1 bg-green-50 px-2.5 py-0.5 rounded-md ring-1 ring-green-200/50">
-                        <Shield className="w-3 h-3 text-green-500" />
-                        <span className="hidden sm:inline">Connection Secure</span>
-                        <span className="sm:hidden">Secure</span>
-                    </span>
-                </div>
-
                 {/* Branding in Header */}
                 <div className="hidden xl:flex items-center gap-6 px-6 border-l border-zinc-100 ml-6">
+                    <div className="flex flex-col items-end mr-6 pr-6 border-r border-zinc-100">
+                        <div className="flex items-center gap-1.5 lg:gap-2 text-zinc-800 font-mono font-bold text-sm lg:text-base tracking-tight">
+                            <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                            {currentTime}
+                        </div>
+                        <span className="text-[9px] text-green-600 flex items-center gap-1.5 font-bold uppercase tracking-[0.1em] mt-1 bg-green-50 px-2.5 py-0.5 rounded-md ring-1 ring-green-200/50">
+                            <Shield className="w-3 h-3 text-green-500" />
+                            <span className="hidden sm:inline">Connection Secure</span>
+                            <span className="sm:hidden">Secure</span>
+                        </span>
+                    </div>
                     <div className="flex items-center gap-6">
-                        <img src="/krishishayogi.png" alt="Krishi Sahayogi" className="h-16 lg:h-20 object-contain mix-blend-multiply scale-125" />
+                        <a href="https://www.krishisahayogi.in/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+                            <img src="/krishishayogi.png" alt="Krishi Sahayogi" className="h-16 lg:h-20 object-contain mix-blend-multiply scale-125" />
+                        </a>
                         <div className="h-12 w-[1px] bg-zinc-100" />
                         <img src="/Nielit_logo.jpeg" alt="NIELIT" className="h-12 object-contain mix-blend-multiply" />
                         <img src="/India-AI_logo.jpeg" alt="India AI" className="h-12 object-contain mix-blend-multiply" />
