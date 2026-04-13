@@ -53,6 +53,7 @@ const getHealthStatus = (unit: Unit) => {
 };
 
 const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void }) => {
+    const { user } = useAuth();
     const isOnline = unit.status === 'online';
     const isPending = unit.status === 'pending';
     const metrics = unit.metrics;
@@ -81,6 +82,7 @@ const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void })
                     <div className="flex items-center gap-2">
                         <div className={cn(
                             "w-2 h-2 rounded-full",
+                            (user?.role === 'ROOT' && isOnline) ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" :
                             status === 'healthy' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" : 
                             status === 'warning' ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)] animate-pulse" :
                             status === 'critical' ? "bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse" :
@@ -88,6 +90,7 @@ const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void })
                         )} />
                         <span className={cn(
                             "text-[10px] font-black uppercase tracking-[0.2em]",
+                            (user?.role === 'ROOT' && (status === 'healthy' || status === 'warning')) ? "text-emerald-600" :
                             status === 'healthy' ? "text-emerald-600" :
                             status === 'warning' ? "text-amber-600" :
                             status === 'critical' ? "text-red-600" :
@@ -705,17 +708,13 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     <span className="text-2xl font-black text-zinc-900 tracking-tighter">
                                         {totalUnits > 0 ? Math.round((activeUnits / totalUnits) * 100) : 100}%
                                     </span>
-                                    <div className={cn(
-                                        "w-1.5 h-1.5 rounded-full",
-                                        activeUnits === totalUnits ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" : "bg-amber-500 animate-pulse"
-                                    )} />
                                 </div>
                             </div>
                             <div className="flex flex-col items-end gap-1">
                                 <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-[9px] font-black text-emerald-600 ring-1 ring-emerald-100 uppercase tracking-tighter">
                                     {activeUnits} Connected
                                 </span>
-                                {units.some(u => getHealthStatus(u) === 'warning' || getHealthStatus(u) === 'critical') && (
+                                {user?.role !== 'ROOT' && units.some(u => getHealthStatus(u) === 'warning' || getHealthStatus(u) === 'critical') && (
                                     <span className="px-2.5 py-1 rounded-lg bg-red-50 text-[9px] font-black text-red-600 ring-1 ring-red-100 uppercase tracking-tighter animate-pulse">
                                         {units.filter(u => getHealthStatus(u) === 'warning' || getHealthStatus(u) === 'critical').length} Issues
                                     </span>
@@ -889,6 +888,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                                     {unit.name.split('/').pop()}
                                                                 </span>
                                                                 <span className={cn("text-[9px] font-bold transition-opacity", 
+                                                                    (user?.role === 'ROOT' && (getHealthStatus(unit) === 'healthy' || getHealthStatus(unit) === 'warning')) ? 'text-emerald-500' :
                                                                     getHealthStatus(unit) === 'healthy' ? 'text-emerald-500' : 
                                                                     getHealthStatus(unit) === 'warning' ? 'text-amber-500' :
                                                                     getHealthStatus(unit) === 'critical' ? 'text-red-500' :
@@ -902,6 +902,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                             </div>
                                                         </div>
                                                         <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm transition-colors",
+                                                            (user?.role === 'ROOT' && isOnline) ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
                                                             getHealthStatus(unit) === 'healthy' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
                                                             getHealthStatus(unit) === 'warning' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' :
                                                             getHealthStatus(unit) === 'critical' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]' :
@@ -1515,7 +1516,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 </button>
                                             ))}
                                         </div>
-                                        <div className="flex-1 bg-white/40 backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white flex flex-col min-w-0 min-h-0 transition-all duration-500">
+                                        <div className="flex-1 bg-white backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white flex flex-col min-w-0 min-h-0 transition-all duration-500">
                                             <div className="flex justify-between items-end mb-8">
                                                 <div className="space-y-1">
                                                     <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time Usage Details</h3>
