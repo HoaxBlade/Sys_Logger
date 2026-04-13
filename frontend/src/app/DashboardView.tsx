@@ -598,8 +598,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
             `}</style>
             
             <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden flex justify-center items-center">
-                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[60%] bg-orange-500/5 blur-[140px] rounded-full" />
-                <div className="absolute bottom-[-20%] right-[-10%] w-[70%] h-[60%] bg-orange-600/5 blur-[140px] rounded-full" />
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[60%] bg-orange-500/5 blur-[200px] rounded-full" />
+                <div className="absolute bottom-[-20%] right-[-10%] w-[70%] h-[60%] bg-orange-600/5 blur-[200px] rounded-full" />
             </div>
 
             {/* HEADER SECTION */}
@@ -759,7 +759,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     {/* Action Buttons & Filters */}
                     <div className="px-4 lg:px-5 flex flex-col gap-4 pb-2">
                         {/* Quick Filters */}
-                        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-2 mask-linear-right">
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 mask-linear-right">
                             {(['all', 'connected', 'warning', 'critical', 'disconnected'] as const).map((status) => (
                                 <button
                                     key={status}
@@ -823,7 +823,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     </div>
 
                     {/* Navigation / Node List */}
-                    <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-6 custom-scrollbar bg-white/5 relative mt-2">
+                    <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-6 no-scrollbar bg-white/5 relative mt-2">
                         <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-white/20 to-transparent pointer-events-none z-10" />
                         
                         {loading ? (
@@ -1280,7 +1280,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
-                                className="flex-1 overflow-y-auto p-4 lg:p-8 custom-scrollbar"
+                                className="flex-1 overflow-y-auto p-4 lg:p-8 no-scrollbar"
                             >
                                 <OrgManager />
                             </motion.div>
@@ -1291,7 +1291,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.99, y: -5 }}
                                 transition={{ duration: 0.2, ease: "easeOut" }}
-                                className="flex-1 flex flex-col overflow-y-auto custom-scrollbar h-full"
+                                className="flex-1 flex flex-col overflow-y-auto no-scrollbar h-full"
                             >
                                 {/* ... existing unit view ... */}
                                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 lg:mb-6 bg-white p-5 lg:p-6 rounded-2xl lg:rounded-3xl ring-1 ring-zinc-200/80 shadow-[0_2px_12px_rgba(0,0,0,0.03)] gap-4">
@@ -1461,37 +1461,41 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     </div>
                                 ) : activeTab === 'metrics' ? (
                                     <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 pb-4 lg:pb-6 flex-1 min-h-0">
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-4 shrink-0 lg:w-48 xl:w-56 overflow-y-auto custom-scrollbar p-1">
-                                            {currentMetrics.map((metric) => (
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-4 shrink-0 lg:w-64 xl:w-72 overflow-y-auto no-scrollbar px-10 py-5">
+                                            {currentMetrics.map((metric, idx) => (
                                                 <button 
                                                     key={metric.id} 
                                                     onClick={() => setSelectedMetric(metric.id as any)} 
                                                     className={cn(
-                                                        "p-5 text-left rounded-[2rem] transition-all duration-500 flex flex-col justify-between items-start group relative transition-all",
+                                                        "p-5 text-left rounded-[2rem] transition-all duration-500 flex flex-col justify-between items-start group relative bg-white/40 backdrop-blur-md ring-1 ring-white/60",
                                                         selectedMetric === metric.id 
-                                                            ? 'bg-white/80 ring-2 ring-orange-500 shadow-[0_20px_40px_rgba(249,115,22,0.15)] scale-[1.03] z-10' 
-                                                            : 'bg-white/40 backdrop-blur-md ring-1 ring-white/60 hover:ring-white hover:bg-white/60 hover:shadow-xl hover:-translate-y-1'
+                                                            ? 'bg-white/95 ring-2 ring-orange-500 scale-[1.03] z-20 shadow-[0_10px_30px_rgba(249,115,22,0.1)]' 
+                                                            : 'hover:ring-white hover:bg-white/60 hover:shadow-xl hover:-translate-y-1 hover:z-[50]'
                                                     )}
                                                 >
-                                                    <div className="flex items-center justify-between w-full mb-4">
-                                                        <div className={cn(
-                                                            "p-2.5 rounded-2xl transition-all duration-500",
-                                                            selectedMetric === metric.id 
-                                                                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
-                                                                : 'bg-zinc-100 text-zinc-400 group-hover:bg-white group-hover:text-zinc-600'
-                                                        )}>
-                                                            {metric.icon}
+                                                    {selectedMetric === metric.id && (
+                                                        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[2rem]">
+                                                            <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-24 h-24 bg-orange-500/20 blur-[40px] rounded-full" />
                                                         </div>
-                                                        <div className="relative group/tip flex items-center justify-center">
-                                                            <div className="p-1 px-1.5 rounded-lg bg-zinc-100/50 text-zinc-400 hover:bg-zinc-900 hover:text-white transition-all cursor-help scale-90 group-hover:scale-100">
+                                                    )}
+                                                        <div className="flex items-center justify-between w-full mb-4 relative z-10">
+                                                            <div className={cn(
+                                                                "p-2.5 rounded-2xl transition-all duration-500",
+                                                                selectedMetric === metric.id 
+                                                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
+                                                                    : 'bg-zinc-100 text-zinc-400 group-hover:bg-white group-hover:text-zinc-600'
+                                                            )}>
+                                                                {metric.icon}
+                                                            </div>
+                                                            <div className="relative group/tip flex items-center justify-center p-1.5 rounded-xl bg-zinc-100/50 text-zinc-400 hover:bg-zinc-900 hover:text-white transition-all cursor-help scale-90 group-hover:scale-100">
                                                                 <span className="text-[10px] font-black">i</span>
-                                                            </div>
-                                                            <div className="absolute bottom-full mb-3 right-0 w-48 p-3 bg-zinc-900 text-white text-[10px] font-bold rounded-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-[100] shadow-2xl scale-95 group-hover/tip:scale-100 origin-bottom-right">
-                                                                {metric.info}
-                                                                <div className="absolute top-full right-4 border-8 border-transparent border-t-zinc-900" />
+                                                                
+                                                                {/* In-Card Info Overlay */}
+                                                                <div className="absolute top-[-20px] left-[-180px] w-[200px] p-4 bg-zinc-900/95 backdrop-blur-xl text-white text-[10px] font-bold rounded-[1.5rem] opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-[100] shadow-2xl scale-95 group-hover/tip:scale-100 origin-bottom-right leading-relaxed ring-1 ring-white/20">
+                                                                    {metric.info}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
                                                     <div className="space-y-1">
                                                         <p className={cn(
                                                             "text-xs font-black uppercase tracking-widest transition-colors",
@@ -1511,7 +1515,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 </button>
                                             ))}
                                         </div>
-                                        <div className="flex-1 bg-white/40 backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white shadow-xl flex flex-col min-w-0 min-h-0 transition-all duration-500 hover:shadow-2xl">
+                                        <div className="flex-1 bg-white/40 backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white flex flex-col min-w-0 min-h-0 transition-all duration-500">
                                             <div className="flex justify-between items-end mb-8">
                                                 <div className="space-y-1">
                                                     <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time Usage Details</h3>
@@ -1524,7 +1528,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="flex-1 min-h-0 relative bg-zinc-50/50 rounded-2xl ring-1 ring-zinc-100 p-4">
+                                            <div className="flex-1 min-h-0 relative bg-zinc-100/80 rounded-3xl ring-1 ring-zinc-200/50 p-6 shadow-inner">
                                                 <UsageGraph data={usageData} metric={selectedMetric} className="h-full" />
                                             </div>
                                         </div>
@@ -1577,7 +1581,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     </div>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 p-1 pt-4">
+                                <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-4">
                                     {units.length === 0 ? (
                                         <div className="flex-1 flex flex-col items-center justify-center p-12 bg-white rounded-3xl ring-1 ring-zinc-200/50 text-center shadow-sm">
                                             <div className="mb-6 p-6 bg-zinc-50 rounded-full ring-1 ring-zinc-100 shadow-inner">

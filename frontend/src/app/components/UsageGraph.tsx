@@ -276,7 +276,7 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      <div className="flex flex-wrap gap-2 p-1.5 bg-zinc-100/50 backdrop-blur-md rounded-2xl w-fit mb-6 border border-zinc-200/50 shadow-inner">
+      <div className="flex flex-wrap gap-2 p-1.5 bg-zinc-100/50 backdrop-blur-md rounded-2xl w-fit mb-6 border border-zinc-200/50">
         {['30s', '1m', '5m', '15m', '30m', '1h', '6h', '1d'].map((range) => (
           <button
             key={range}
@@ -284,7 +284,7 @@ export const UsageGraph: React.FC<UsageGraphProps> = ({
             className={cn(
               "px-4 py-1.5 text-[9px] font-black rounded-xl transition-all uppercase tracking-widest",
               selectedTimeRange === range
-                ? 'bg-white text-orange-600 shadow-sm ring-1 ring-zinc-200'
+                ? 'bg-white text-orange-600 ring-1 ring-zinc-200'
                 : 'text-zinc-400 hover:text-zinc-600'
             )}
           >
