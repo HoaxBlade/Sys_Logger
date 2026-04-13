@@ -8,6 +8,8 @@ import { OrgManager } from './components/OrgManager'
 import { useUsageData } from './components/hooks/useUsageData'
 import { useUnits } from './components/hooks/useUnits'
 import { apiFetch } from './components/hooks/apiUtils'
+import { useAuditLogs } from './components/hooks/useAuditLogs'
+import { CommandLogSideSheet } from './components/CommandLogSideSheet'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -302,6 +304,10 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const [reportTarget, setReportTarget] = useState<{id: string, name: string, type: 'node' | 'org'}>({id: '', name: '', type: 'node'})
     const [logoIndex, setLogoIndex] = useState(0)
 
+    // Audit Trail State
+    const { logs, logAction, clearLogs } = useAuditLogs()
+    const [isCommandLogOpen, setIsCommandLogOpen] = useState(false)
+
     // Sidebar Collapsible Groups
     const [collapsedOrgs, setCollapsedOrgs] = useState<string[]>([])
     
@@ -360,9 +366,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const handlePayment = async (plan: PricingPlan) => {
         setPaymentLoading(plan.slug);
         try {
-            const orderResp = await fetch('/api/payments/create-order', {
+            const orderResp = await apiFetch('/api/payments/create-order', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ plan_slug: plan.slug })
             });
             const orderData = await orderResp.json();
@@ -376,9 +381,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 description: `Upgrade to ${plan.name} Plan`,
                 order_id: orderData.order_id,
                 handler: async (response: any) => {
-                    const verifyResp = await fetch('/api/payments/verify', {
+                    const verifyResp = await apiFetch('/api/payments/verify', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify({
                             razorpay_order_id: response.razorpay_order_id,
                             razorpay_payment_id: response.razorpay_payment_id,
@@ -443,6 +447,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
     const triggerRawExport = async (id: string, range: string) => {
       try {
+        logAction('DATA', `Requested raw telemetry export [${range}]`, user?.email || 'Admin', id)
         const response = await apiFetch(`/api/units/${id}/export?range=${range}`)
         if (!response.ok) throw new Error('Failed to export data')
         
@@ -463,6 +468,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
     const triggerIntelligentReport = async (id: string, type: 'node' | 'org', range: string) => {
       try {
+        logAction('DATA', `Generated intelligent ${type} report [${range}]`, user?.email || 'Admin', id)
         const endpoint = type === 'node' 
           ? `/api/reports/node/${id}?range=${range}`
           : `/api/reports/org/${id}?range=${range}`
@@ -493,6 +499,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 body: JSON.stringify(editModeData)
             })
             if (response.ok) {
+                logAction('MANAGEMENT', `Modified unit identity metadata`, user?.email || 'Admin', selectedUnit.name)
                 const updatedUnit = await response.json()
                 setSelectedUnit(updatedUnit)
                 setIsEditing(false)
@@ -508,9 +515,9 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
         setIsDeleting(true)
         try {
-            const response = await fetch(`/api/units/${selectedUnit.id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
+            logAction('SECURITY', `Attempted permanent unit removal`, user?.email || 'Admin', selectedUnit.name)
+            const response = await apiFetch(`/api/units/${selectedUnit.id}`, {
+                method: 'DELETE'
             })
             if (response.ok) {
                 clearSelection()
@@ -528,12 +535,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
         setAddNodeError('')
 
         try {
-            const response = await fetch('/api/units/download-installer', {
+            const response = await apiFetch('/api/units/download-installer', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
                 body: JSON.stringify({ comp_id: compName })
             })
 
@@ -593,12 +596,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
         setGeneratedLink('')
 
         try {
-            const response = await fetch('/api/units/generate-link', {
+            const response = await apiFetch('/api/units/generate-link', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
                 body: JSON.stringify({ comp_id: compName })
             })
 
@@ -972,10 +971,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                                                 {sanitizeText(unit.name.split('/').pop() || '')}
                                                                             </span>
                                                                             <span className={cn("text-[9px] font-bold transition-opacity", 
-                                                                                (user?.role === 'ROOT' && (getHealthStatus(unit) === 'healthy' || getHealthStatus(unit) === 'warning')) ? 'text-emerald-500' :
                                                                                 getHealthStatus(unit) === 'healthy' ? 'text-emerald-500' : 
-                                                                                getHealthStatus(unit) === 'warning' ? 'text-amber-500' :
-                                                                                getHealthStatus(unit) === 'critical' ? 'text-red-500' :
+                                                                                (getHealthStatus(unit) === 'warning' || getHealthStatus(unit) === 'critical') ? 'text-red-500 font-black animate-pulse' :
                                                                                 isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
                                                                             )}>
                                                                                 {getHealthStatus(unit) === 'healthy' ? 'CONNECTED' : 
@@ -986,10 +983,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                                         </div>
                                                                     </div>
                                                                     <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm transition-colors",
-                                                                        (user?.role === 'ROOT' && isOnline) ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
-                                                                        getHealthStatus(unit) === 'healthy' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
-                                                                        getHealthStatus(unit) === 'warning' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' :
-                                                                        getHealthStatus(unit) === 'critical' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]' :
+                                                                        isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
                                                                         isPending ? 'bg-orange-400 animate-pulse' : 'bg-zinc-300'
                                                                     )} />
                                                                 </div>
@@ -1703,6 +1697,30 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     </AnimatePresence>
                 </main>
             </div>
+
+            <CommandLogSideSheet 
+                isOpen={isCommandLogOpen}
+                onClose={() => setIsCommandLogOpen(false)}
+                logs={logs}
+                onClear={clearLogs}
+            />
+
+            {/* Floating Command Log Button */}
+            <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(0,0,0,0.3)' }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setIsCommandLogOpen(true)}
+                className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 w-14 h-14 bg-zinc-900 text-orange-500 rounded-2xl flex items-center justify-center shadow-2xl ring-1 ring-white/10 z-[80] group overflow-hidden"
+                title="Open Command Log"
+            >
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <Terminal size={20} className="relative z-10 group-hover:scale-110 transition-transform" />
+                {logs.length > 0 && (
+                    <span className="absolute top-3.5 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse z-20" />
+                )}
+            </motion.button>
         </div>
     )
 }
