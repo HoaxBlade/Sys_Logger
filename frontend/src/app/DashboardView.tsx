@@ -131,6 +131,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
     const [mockUsageData, setMockUsageData] = useState<UsageData[]>([])
     const [currentTime, setCurrentTime] = useState<string>('')
+    const [searchQuery, setSearchQuery] = useState('')
     const [viewOrgId] = useState<string | null>(propOrgId || null)
 
     // Real API Hooks
@@ -149,7 +150,18 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     // Determine which data to use
     const units = apiUnits.units
     const sortedUnits = useMemo(() => {
-        return [...units].sort((a, b) => {
+        let filtered = [...units];
+        
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            filtered = filtered.filter(u => 
+                u.name.toLowerCase().includes(q) || 
+                (u.ip && u.ip.toLowerCase().includes(q)) ||
+                (u.org_name && u.org_name.toLowerCase().includes(q))
+            );
+        }
+
+        return filtered.sort((a, b) => {
             // 1. Primary Sort: Status (Online first)
             if (a.status === 'online' && b.status !== 'online') return -1;
             if (a.status !== 'online' && b.status === 'online') return 1;
@@ -157,7 +169,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
             // 2. Secondary Sort: Name (Alphabetical - stable)
             return a.name.localeCompare(b.name);
         });
-    }, [units]);
+    }, [units, searchQuery]);
 
     const usageData = apiUsage.data
     const loading = apiUnits.loading
@@ -562,9 +574,10 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     "fixed inset-y-0 left-0 z-[110] w-[85%] sm:w-80 bg-white/40 backdrop-blur-3xl shadow-[0_8px_32px_0_rgba(249,115,22,0.15)] lg:border border-white/60 lg:ring-1 lg:ring-white/40 lg:rounded-[2.5rem] flex flex-col shrink-0 overflow-hidden lg:relative lg:translate-x-0 transition-transform duration-300 ease-in-out",
                     isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
                 )}>
+                    {/* Header: Menu Title */}
                     <div className="flex items-center justify-between p-4 border-b border-white/60 lg:hidden bg-white/60 backdrop-blur-md">
                         <span className="font-black text-zinc-800 text-xs tracking-widest uppercase flex items-center gap-2">
-                            <Activity size={16} className="text-orange-500" /> Fleet Menu
+                            <Activity size={16} className="text-orange-500" /> Control Deck
                         </span>
                         <button
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -574,29 +587,63 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                         </button>
                     </div>
 
-                    <div className="p-5 lg:p-6 border-b border-white/60 bg-gradient-to-br from-white/70 to-white/30 backdrop-blur-xl shadow-sm z-10 relative">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400/10 rounded-bl-full blur-2xl pointer-events-none" />
+                    {/* Fleet Health Meter */}
+                    <div className="p-5 lg:p-6 border-b border-white/60 bg-gradient-to-br from-white/70 to-white/30 backdrop-blur-xl shadow-sm z-10 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400/10 rounded-bl-full blur-2xl pointer-events-none group-hover:bg-orange-400/20 transition-colors duration-700" />
+                        
                         <div className="flex justify-between items-end mb-4 relative z-10">
-                            <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Network Status</h3>
-                            <span className="px-3 py-1 rounded-lg bg-white/80 backdrop-blur-sm ring-1 ring-white shadow-sm text-[11px] font-black text-zinc-800">
-                                {activeUnits} <span className="text-zinc-400 font-bold">/ {totalUnits}</span>
+                            <div>
+                                <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-1">Fleet Health</h3>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-2xl font-black text-zinc-900 tracking-tighter">
+                                        {totalUnits > 0 ? Math.round((activeUnits / totalUnits) * 100) : 100}%
+                                    </span>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                                </div>
+                            </div>
+                            <span className="px-3 py-1.5 rounded-xl bg-white/90 backdrop-blur-sm ring-1 ring-white shadow-sm text-[10px] font-black text-zinc-800 uppercase tracking-tighter">
+                                {activeUnits} Online
                             </span>
                         </div>
-                        <div className="w-full bg-black/5 rounded-full h-2 overflow-hidden shadow-inner relative z-10 p-0.5">
-                            <div
-                                className="bg-gradient-to-r from-orange-400 to-orange-500 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(249,115,22,0.5)] relative"
-                                style={{ width: `${totalUnits > 0 ? (activeUnits / totalUnits) * 100 : 0}%` }}
+
+                        <div className="w-full bg-zinc-200/50 rounded-full h-1.5 overflow-hidden shadow-inner relative z-10">
+                            <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${totalUnits > 0 ? (activeUnits / totalUnits) * 100 : 0}%` }}
+                                className="bg-gradient-to-r from-orange-400 to-orange-500 h-full rounded-full shadow-[0_0_12px_rgba(249,115,22,0.4)] relative"
                             >
-                                <div className="absolute top-0 right-0 bottom-0 w-4 bg-white/30 blur-[2px]" />
-                            </div>
+                                <div className="absolute inset-0 bg-white/20 blur-[1px]" />
+                            </motion.div>
                         </div>
                     </div>
 
-                    {/* Add Monitor & Management Buttons */}
-                    <div className="px-4 lg:px-5 flex flex-col gap-3 py-4 bg-white/20">
+                    {/* Quick Search */}
+                    <div className="px-5 py-4 bg-white/10">
+                        <div className="relative group">
+                            <Monitor size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-orange-500 transition-colors" />
+                            <input 
+                                type="text"
+                                placeholder="Search inventory..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full bg-white/50 backdrop-blur-md rounded-2xl py-3 pl-10 pr-4 text-[11px] font-bold text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 ring-1 ring-white/60 transition-all shadow-sm"
+                            />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                                >
+                                    <X size={12} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="px-4 lg:px-5 flex flex-col gap-2.5 pb-2">
                         <button
                             onClick={() => setIsAddNodeOpen(true)}
-                            className="w-full py-4 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white rounded-[1.25rem] font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-2 hover:shadow-[0_8px_25px_rgba(0,0,0,0.15)] hover:scale-[1.02] active:scale-95 transition-all duration-300 group ring-1 ring-zinc-800/50"
+                            className="w-full py-4 bg-zinc-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 hover:shadow-[0_12px_24px_rgba(0,0,0,0.15)] hover:scale-[1.01] active:scale-95 transition-all duration-300 group ring-1 ring-zinc-800/50"
                         >
                             <Zap className="w-4 h-4 text-orange-400 group-hover:text-orange-300 group-hover:drop-shadow-[0_0_8px_rgba(251,146,60,0.8)] transition-all" />
                             Deploy Monitor
@@ -610,17 +657,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         setIsMobileMenuOpen(false);
                                     }}
                                     className={cn(
-                                        "w-full py-3.5 rounded-[1.25rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition-all duration-300 ring-1 shadow-sm hover:scale-[1.02] active:scale-95",
+                                        "w-full py-3.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 transition-all duration-300 ring-1 shadow-sm hover:scale-[1.01] active:scale-95",
                                         activeTab === 'management'
-                                            ? "bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-[0_4px_15px_rgba(249,115,22,0.3)] ring-orange-400/50"
-                                            : "bg-white/60 backdrop-blur-md text-zinc-600 hover:bg-white hover:text-orange-500 ring-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]"
+                                            ? "bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-[0_8px_20px_rgba(249,115,22,0.3)] ring-orange-400/50"
+                                            : "bg-white/60 backdrop-blur-md text-zinc-600 hover:bg-white hover:text-orange-500 ring-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.05)]"
                                     )}
                                 >
                                     <Shield className="w-4 h-4" />
-                                    {activeTab === 'management' ? 'Exit Management' : 'System Management'}
+                                    {activeTab === 'management' ? 'Exit Admin' : 'Admin Nexus'}
                                 </button>
                                 
-                                {activeTab === 'management' && user.org_id && (
+                                {activeTab === 'management' && user?.org_id && (
                                     <button
                                         onClick={() => {
                                             setReportTarget({
@@ -630,7 +677,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             });
                                             setIsReportModalOpen(true);
                                         }}
-                                        className="w-full py-3 rounded-[1.25rem] bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all hover:scale-[1.02] shadow-lg shadow-zinc-900/10"
+                                        className="w-full py-3.5 bg-zinc-900 border border-zinc-700 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 hover:bg-zinc-800 transition-all hover:scale-[1.01] shadow-lg shadow-zinc-900/10"
                                     >
                                         <Activity className="w-4 h-4 text-orange-400" />
                                         Generate Fleet Audit
@@ -640,107 +687,85 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-4 lg:space-y-6 custom-scrollbar bg-white/10 relative">
-                        <div className="absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-white/40 to-transparent pointer-events-none" />
+                    {/* Navigation / Node List */}
+                    <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-6 custom-scrollbar bg-white/5 relative mt-2">
+                        <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-white/20 to-transparent pointer-events-none z-10" />
+                        
                         {loading ? (
-                            <div className="flex flex-col items-center justify-center p-8 text-zinc-500 gap-4">
-                                <div className="w-8 h-8 border-[3px] border-zinc-200/50 border-t-orange-500 rounded-full animate-spin shadow-[0_0_15px_rgba(249,115,22,0.2)]" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Scanning Nodes...</span>
+                            <div className="flex flex-col items-center justify-center p-8 gap-4">
+                                <motion.div 
+                                    animate={{ rotate: 360 }}
+                                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                                    className="w-8 h-8 border-2 border-zinc-200 border-t-orange-500 rounded-full"
+                                />
+                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">Syncing Nodes...</span>
                             </div>
                         ) : units.length === 0 ? (
-                            <div className="text-center p-8 bg-white rounded-2xl border border-zinc-200 border-dashed m-2">
-                                <Server className="w-8 h-8 text-zinc-300 mx-auto mb-3" />
-                                <p className="text-xs font-bold text-zinc-500">No nodes found.</p>
+                            <div className="text-center p-10 bg-white/40 rounded-3xl border border-dashed border-zinc-200 m-2">
+                                <Server className="w-8 h-8 text-zinc-300 mx-auto mb-3 opacity-50" />
+                                <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">Empty Fleet</p>
                             </div>
                         ) : (
                             Object.entries(
                                 sortedUnits.reduce((acc, unit) => {
-                                    const org = unit.org_id || 'Global';
+                                    const org = unit.org_name || 'Global';
                                     if (!acc[org]) acc[org] = [];
                                     acc[org].push(unit);
                                     return acc;
                                 }, {} as Record<string, Unit[]>)
                             ).map(([org, orgUnits]) => (
-                                <div key={org} className="space-y-2 lg:space-y-3">
-                                    <div className="flex items-center gap-2 px-1 mb-2">
-                                        <div className="p-1 px-2 bg-zinc-900 rounded-lg text-[9px] font-black text-white border border-zinc-800 uppercase tracking-widest shadow-sm">
-                                            {orgUnits[0].org_name}
-                                            <span className="ml-1.5 font-bold border-l border-white/20 pl-1.5 text-orange-400">
-                                                {orgUnits[0].org_slug}
-                                            </span>
-                                        </div>
-                                        <div className="h-[1px] flex-1 bg-zinc-200/60" />
+                                <div key={org} className="space-y-3">
+                                    <div className="flex items-center gap-3 px-1 mb-3">
+                                        <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
+                                        <span className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400 px-2">
+                                            {org}
+                                        </span>
+                                        <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
                                     </div>
-                                    <div className="space-y-2 lg:space-y-3">
+                                    <div className="space-y-2.5">
                                         {orgUnits.map((unit) => {
                                             const isSelected = selectedUnitId === unit.id;
                                             const isOnline = unit.status === 'online';
                                             const isPending = unit.status === 'pending';
 
                                             return (
-                                                <div
+                                                <motion.div
                                                     key={unit.id}
-                                                    role="button"
-                                                    tabIndex={0}
+                                                    whileHover={{ x: 4 }}
                                                     onClick={() => handleUnitToggle(unit)}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleUnitToggle(unit); }}
                                                     className={cn(
-                                                        "w-full text-left p-4 lg:p-5 rounded-[1.5rem] transition-all duration-300 relative overflow-hidden group/card backdrop-blur-md cursor-pointer",
+                                                        "w-full text-left p-4 rounded-[1.5rem] transition-all duration-300 relative overflow-hidden group/card cursor-pointer",
                                                         isSelected
-                                                            ? 'bg-white/90 ring-[1.5px] ring-orange-400 shadow-[0_8px_30px_rgba(249,115,22,0.15)] scale-[1.02]'
-                                                            : 'bg-white/40 ring-1 ring-white/60 hover:ring-orange-200 hover:bg-white/60 hover:shadow-[0_4px_20px_rgba(0,0,0,0.05)] hover:-translate-y-1'
+                                                            ? 'bg-white shadow-[0_12px_30px_rgba(249,115,22,0.12)] ring-1 ring-orange-400/50 scale-[1.02]'
+                                                            : 'hover:bg-white hover:shadow-xl hover:shadow-zinc-900/5'
                                                     )}
                                                 >
-                                                    {isSelected && <div className="absolute inset-0 bg-gradient-to-br from-orange-400/5 to-transparent pointer-events-none" />}
-                                                    <div className="flex justify-between items-start mb-3 relative z-10">
-                                                        <div className="flex items-center gap-3 lg:gap-4">
-                                                            <div className={cn("p-2 lg:p-2.5 rounded-xl transition-all duration-300",
-                                                                isSelected ? 'bg-gradient-to-br from-orange-400 to-orange-500 text-white shadow-[0_4px_12px_rgba(249,115,22,0.3)]' : 'bg-white/80 ring-1 ring-white text-zinc-500 group-hover/card:text-orange-500 group-hover/card:shadow-md'
+                                                    <div className="flex justify-between items-start relative z-10">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={cn("p-2.5 rounded-2xl transition-all duration-300",
+                                                                isSelected 
+                                                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
+                                                                    : 'bg-zinc-100 text-zinc-400 group-hover/card:bg-orange-50 group-hover/card:text-orange-500'
                                                             )}>
-                                                                <Monitor className="w-4 h-4 lg:w-5 lg:h-5" />
+                                                                <Monitor size={16} />
                                                             </div>
                                                             <div className="flex flex-col min-w-0">
-                                                                <span className={cn("font-black truncate text-sm lg:text-base tracking-tight transition-colors", isSelected ? 'text-zinc-900' : 'text-zinc-700 group-hover/card:text-zinc-900')}>
+                                                                <span className={cn("font-black truncate text-[13px] tracking-tight transition-colors", isSelected ? 'text-zinc-900' : 'text-zinc-700 group-hover/card:text-zinc-900')}>
                                                                     {unit.name.split('/').pop()}
                                                                 </span>
-                                                                {isPending && (
-                                                                    <span className="text-[9px] font-black text-orange-500 uppercase tracking-tighter animate-pulse">
-                                                                        Awaiting Install
-                                                                    </span>
-                                                                )}
+                                                                <span className={cn("text-[9px] font-bold transition-opacity", 
+                                                                    isOnline ? 'text-emerald-500' : isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
+                                                                )}>
+                                                                    {isOnline ? 'REAL-TIME ACTIVE' : isPending ? 'SETUP REQUIRED' : 'OFFLINE'}
+                                                                </span>
                                                             </div>
                                                         </div>
-                                                        <div className="flex items-center gap-2 mt-2.5 shrink-0">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    downloadInstaller(unit.comp_id || unit.name.split('/').pop() || '');
-                                                                }}
-                                                                className={cn(
-                                                                    "p-1.5 rounded-lg transition-all duration-300",
-                                                                    isSelected
-                                                                        ? "bg-zinc-100/80 text-orange-600 hover:bg-orange-600 hover:text-white"
-                                                                        : "bg-white/50 text-zinc-400 hover:text-orange-500 hover:bg-white"
-                                                                )}
-                                                                title="Download Client"
-                                                            >
-                                                                <Download size={14} />
-                                                            </button>
-                                                            <div className={cn("w-2.5 h-2.5 rounded-full shadow-sm relative",
-                                                                isOnline ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]' :
-                                                                    isPending ? 'bg-orange-400 animate-ping shadow-[0_0_10px_rgba(251,146,60,0.8)]' : 'bg-zinc-300'
-                                                            )}>
-                                                                {isOnline && <div className="absolute inset-0 rounded-full ring-2 ring-emerald-500/30 animate-ping" />}
-                                                            </div>
-                                                        </div>
+                                                        <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm",
+                                                            isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
+                                                            isPending ? 'bg-orange-400' : 'bg-zinc-300'
+                                                        )} />
                                                     </div>
-
-                                                    <div className="flex justify-between items-center text-xs pl-[48px] lg:pl-[60px] relative z-10">
-                                                        <span className={cn("font-mono text-[10px] lg:text-[11px] font-bold truncate pr-2 tracking-tight", isSelected ? 'text-orange-600/80' : 'text-zinc-500')}>
-                                                            {isPending ? 'DEPLOYMENT PENDING' : unit.ip}
-                                                        </span>
-                                                    </div>
-                                                </div>
+                                                </motion.div>
                                             )
                                         })}
                                     </div>
@@ -749,31 +774,26 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                         )}
                     </div>
 
-
-                    {/* User Profile & Logout */}
-                    <div className="p-4 border-t border-white/60 bg-white/50 backdrop-blur-xl">
-                        <div className="flex items-center gap-3 p-3 bg-white/80 rounded-[1.25rem] ring-1 ring-white shadow-sm hover:shadow-md transition-shadow">
-                            <div className="w-11 h-11 bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-[1rem] flex items-center justify-center text-orange-400 font-black text-sm shadow-[0_4px_15px_rgba(0,0,0,0.15)] ring-1 ring-zinc-700/50">
-                                {user?.email.charAt(0).toUpperCase() || 'U'}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-black text-zinc-900 truncate tracking-tight">{user?.email}</p>
-                                <div className="flex items-center gap-1.5 mt-1">
-                                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-orange-600 bg-orange-100/50 backdrop-blur-sm px-2 py-0.5 rounded-md ring-1 ring-orange-200">
-                                        {user?.role}
-                                    </span>
-                                    <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest truncate">
-                                        ID: {user?.org_id}
-                                    </span>
+                    {/* Footer: User Identity */}
+                    <div className="p-4 border-t border-white/60 bg-white/40 backdrop-blur-2xl">
+                        <div className="p-4 bg-zinc-900 rounded-[1.75rem] shadow-xl group relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/10 rounded-full blur-xl -mr-8 -mt-8 group-hover:bg-orange-500/20 transition-colors" />
+                            <div className="flex items-center gap-3 relative z-10">
+                                <div className="w-10 h-10 bg-gradient-to-br from-zinc-700 to-zinc-800 rounded-2xl flex items-center justify-center text-orange-400 font-black text-xs ring-1 ring-white/10 shadow-lg">
+                                    {user?.email.charAt(0).toUpperCase() || 'U'}
                                 </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-black text-white truncate tracking-tight lowercase opacity-90">{user?.email}</p>
+                                    <p className="text-[9px] font-black text-orange-500/80 uppercase tracking-[0.2em] mt-0.5">{user?.role}</p>
+                                </div>
+                                <button
+                                    onClick={logout}
+                                    className="p-2 text-zinc-400 hover:text-red-400 hover:bg-white/5 rounded-xl transition-all"
+                                    title="Exit Terminal"
+                                >
+                                    <LogOut size={16} />
+                                </button>
                             </div>
-                            <button
-                                onClick={logout}
-                                className="p-2.5 text-zinc-400 bg-white border border-transparent hover:border-red-200 hover:text-red-500 hover:bg-red-50 hover:shadow-[0_4px_15px_rgba(239,68,68,0.1)] rounded-xl transition-all shadow-sm"
-                                title="Log Out"
-                            >
-                                <LogOut size={18} />
-                            </button>
                         </div>
                     </div>
                 </aside>

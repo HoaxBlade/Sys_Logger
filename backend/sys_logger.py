@@ -2251,7 +2251,7 @@ def get_org_report(org_id):
             cur.execute("""
                 SELECT AVG(cpu_usage) as avg_cpu, AVG(ram_usage) as avg_ram 
                 FROM system_metrics 
-                WHERE system_id = %s AND timestamp >= NOW() - INTERVAL '%s days'
+                WHERE system_id = %s AND timestamp >= NOW() - (%s * INTERVAL '1 day')
             """, (sys['system_id'], days))
             res = cur.fetchone()
             
