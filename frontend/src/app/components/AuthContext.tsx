@@ -35,6 +35,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(JSON.parse(savedUser));
         }
         setIsLoading(false);
+
+        // Listen for global unauthorized events (session expiry)
+        const handleUnauthorized = () => {
+            logout();
+        };
+
+        window.addEventListener('app-unauthorized', handleUnauthorized);
+        return () => {
+            window.removeEventListener('app-unauthorized', handleUnauthorized);
+        };
     }, []);
 
     const login = (newToken: string, newUser: User) => {

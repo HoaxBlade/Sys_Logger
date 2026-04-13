@@ -12,7 +12,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const cacheBuster = `cb=${Date.now()}`
     const separator = endpoint.includes('?') ? '&' : '?'
     
-    return fetch(`${baseUrl}${endpoint}${separator}${cacheBuster}`, {
+    const response = await fetch(`${baseUrl}${endpoint}${separator}${cacheBuster}`, {
         mode: 'cors',
         cache: 'no-store', // Disable browser caching
         ...otherOptions,
@@ -25,4 +25,10 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
             ...(headers || {}),
         },
     })
+
+    if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('app-unauthorized'));
+    }
+
+    return response
 }
