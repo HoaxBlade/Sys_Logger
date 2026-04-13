@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Activity, Lock, Mail, ChevronRight, AlertCircle, User, Briefcase, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { apiFetch } from '../components/hooks/apiUtils';
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('');
@@ -23,9 +24,8 @@ export default function RegisterPage() {
         setError('');
 
         try {
-            const response = await fetch('/api/auth/register', {
+            const response = await apiFetch('/api/auth/register', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password, org_name: orgName, org_type: orgType }),
             });
 

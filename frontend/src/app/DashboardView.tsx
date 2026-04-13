@@ -7,6 +7,7 @@ import { UsageGraph } from './components/UsageGraph'
 import { OrgManager } from './components/OrgManager'
 import { useUsageData } from './components/hooks/useUsageData'
 import { useUnits } from './components/hooks/useUnits'
+import { apiFetch } from './components/hooks/apiUtils'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -341,7 +342,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
         script.async = true;
         document.body.appendChild(script);
 
-        fetch('/api/pricing')
+        apiFetch('/api/pricing')
             .then(res => res.ok ? res.json() : Promise.reject())
             .then(data => { if (Array.isArray(data) && data.length > 0) setPlans(data) })
             .catch(() => setPlans([
@@ -440,20 +441,55 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
         setIsReportModalOpen(true)
     }
 
-    const triggerRawExport = (id: string, range: string) => {
-      window.open(`/api/units/${id}/export?range=${range}`, '_blank')
+    const triggerRawExport = async (id: string, range: string) => {
+      try {
+        const response = await apiFetch(`/api/units/${id}/export?range=${range}`)
+        if (!response.ok) throw new Error('Failed to export data')
+        
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `telemetry_export_${id}_${range}.csv`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } catch (err) {
+        console.error('Export error:', err)
+        alert('Failed to generate secure export. Please try again.')
+      }
     }
 
-    const triggerIntelligentReport = (id: string, type: 'node' | 'org', range: string) => {
-      window.open(`/report/${type}/${id}?range=${range}`, '_blank')
+    const triggerIntelligentReport = async (id: string, type: 'node' | 'org', range: string) => {
+      try {
+        const endpoint = type === 'node' 
+          ? `/api/reports/node/${id}?range=${range}`
+          : `/api/reports/org/${id}?range=${range}`
+          
+        const response = await apiFetch(endpoint)
+        if (!response.ok) throw new Error('Failed to generate report')
+        
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `syslogger_report_${type}_${id}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } catch (err) {
+        console.error('Report error:', err)
+        alert('Failed to generate secure report. Please try again.')
+      }
     }
 
     const handleUpdateUnit = async () => {
         if (!selectedUnit) return
         try {
-            const response = await fetch(`/api/units/${selectedUnit.id}`, {
+            const response = await apiFetch(`/api/units/${selectedUnit.id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(editModeData)
             })
             if (response.ok) {
