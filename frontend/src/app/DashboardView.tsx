@@ -642,8 +642,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 </div>
 
                 {/* Branding in Header */}
-                <div className="hidden xl:flex items-center gap-6 px-6 border-l border-zinc-100 ml-6">
-                    <div className="flex flex-col items-end mr-6 pr-6 border-r border-zinc-100">
+                <div className="hidden xl:flex items-center gap-4 px-4 border-l border-zinc-100 ml-4">
+                    <div className="flex flex-col items-end pr-4 border-r border-zinc-100">
                         <div className="flex items-center gap-1.5 lg:gap-2 text-zinc-800 font-mono font-bold text-sm lg:text-base tracking-tight">
                             <Clock className="w-3.5 h-3.5 text-zinc-400" />
                             {currentTime}
@@ -654,7 +654,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                             <span className="sm:hidden">Secure</span>
                         </span>
                     </div>
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
                         <a href="https://www.krishisahayogi.in/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
                             <img src="/krishishayogi.png" alt="Krishi Sahayogi" className="h-16 lg:h-20 object-contain mix-blend-multiply scale-125" />
                         </a>
