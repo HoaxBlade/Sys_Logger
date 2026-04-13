@@ -42,10 +42,21 @@ import { useRouter } from 'next/navigation';
 
 // ----------------------------------------------------------------------
 
+const getHealthStatus = (unit: Unit) => {
+    if (unit.status !== 'online') return 'inactive';
+    const cpu = unit.metrics?.cpu ?? 0;
+    const ram = unit.metrics?.ram ?? 0;
+    
+    if (cpu > 90 || ram > 90) return 'critical';
+    if (cpu > 70 || ram > 80) return 'warning';
+    return 'healthy';
+};
+
 const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void }) => {
     const isOnline = unit.status === 'online';
     const isPending = unit.status === 'pending';
     const metrics = unit.metrics;
+    const status = getHealthStatus(unit);
 
     return (
         <motion.button
@@ -70,14 +81,22 @@ const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void })
                     <div className="flex items-center gap-2">
                         <div className={cn(
                             "w-2 h-2 rounded-full",
-                            isOnline ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" : 
+                            status === 'healthy' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" : 
+                            status === 'warning' ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)] animate-pulse" :
+                            status === 'critical' ? "bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse" :
                             isPending ? "bg-orange-400 animate-bounce" : "bg-zinc-300"
                         )} />
                         <span className={cn(
                             "text-[10px] font-black uppercase tracking-[0.2em]",
-                            isOnline ? "text-emerald-600" : "text-zinc-400"
+                            status === 'healthy' ? "text-emerald-600" :
+                            status === 'warning' ? "text-amber-600" :
+                            status === 'critical' ? "text-red-600" :
+                            "text-zinc-400"
                         )}>
-                            {isOnline ? 'Connected' : isPending ? 'Waiting' : 'Disconnected'}
+                            {status === 'healthy' ? 'Connected' : 
+                             status === 'warning' ? 'Busy' :
+                             status === 'critical' ? 'Critical' :
+                             isPending ? 'Waiting' : 'Disconnected'}
                         </span>
                     </div>
                     <h3 className="font-black text-lg tracking-tighter text-zinc-900 truncate leading-none mt-1">
@@ -188,6 +207,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const [currentTime, setCurrentTime] = useState<string>('')
     const [searchQuery, setSearchQuery] = useState('')
     const [viewOrgId] = useState<string | null>(propOrgId || null)
+    const [filterStatus, setFilterStatus] = useState<'all' | 'connected' | 'warning' | 'critical' | 'disconnected'>('all')
 
     // Real API Hooks
     const apiUsage = useUsageData(viewOrgId || undefined)
@@ -216,15 +236,34 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
             );
         }
 
+        if (filterStatus !== 'all') {
+            filtered = filtered.filter(u => {
+                const health = getHealthStatus(u);
+                if (filterStatus === 'connected') return u.status === 'online';
+                if (filterStatus === 'disconnected') return u.status === 'offline';
+                if (filterStatus === 'warning') return health === 'warning';
+                if (filterStatus === 'critical') return health === 'critical';
+                return true;
+            });
+        }
+
         return filtered.sort((a, b) => {
-            // 1. Primary Sort: Status (Online first)
+            // 1. Primary Sort: Health Status (Critical/Warning first)
+            const aHealth = getHealthStatus(a);
+            const bHealth = getHealthStatus(b);
+            const healthOrder = { critical: 0, warning: 1, healthy: 2, inactive: 3 };
+            if (healthOrder[aHealth] !== healthOrder[bHealth]) {
+                return healthOrder[aHealth] - healthOrder[bHealth];
+            }
+            
+            // 2. Secondary Sort: Status (Online first)
             if (a.status === 'online' && b.status !== 'online') return -1;
             if (a.status !== 'online' && b.status === 'online') return 1;
             
-            // 2. Secondary Sort: Name (Alphabetical - stable)
+            // 3. Tertiary Sort: Name
             return a.name.localeCompare(b.name);
         });
-    }, [units, searchQuery]);
+    }, [units, searchQuery, filterStatus]);
 
     const usageData = apiUsage.data
     const loading = apiUnits.loading
@@ -535,16 +574,29 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
     // Data for the Mini-Cards
     const currentMetrics = useMemo(() => [
-        { id: 'cpu', title: 'Processing', label: 'CPU Load', value: (lastData?.cpu ?? lastData?.cpu_usage ?? 0).toFixed(1), unit: '%', icon: <Cpu className="w-5 h-5" />, color: 'orange' },
-        { id: 'gpu', title: 'Graphics', label: 'GPU Compute', value: (lastData?.gpu ?? lastData?.gpu_load ?? 0).toFixed(1), unit: '%', icon: <Zap className="w-5 h-5" />, color: 'emerald' },
-        { id: 'ram', title: 'Memory', label: 'RAM Util', value: (lastData?.ram ?? lastData?.ram_usage ?? 0).toFixed(1), unit: '%', icon: <HardDrive className="w-5 h-5" />, color: 'orange' },
-        { id: 'network_rx', title: 'Network', label: 'RX Rate', value: (lastData?.network_rx ?? 0).toFixed(3), unit: 'MB/s', icon: <Wifi className="w-5 h-5" />, color: 'orange' }
+        { id: 'cpu', title: 'Processing', label: 'CPU Load', value: (lastData?.cpu ?? lastData?.cpu_usage ?? 0).toFixed(1), unit: '%', icon: <Cpu className="w-5 h-5" />, color: 'orange', info: 'Shows how hard the processor is working. High usage may slow down the system.' },
+        { id: 'gpu', title: 'Graphics', label: 'GPU Status', value: (lastData?.gpu ?? lastData?.gpu_load ?? 0).toFixed(1), unit: '%', icon: <Zap className="w-5 h-5" />, color: 'emerald', info: 'Usage of graphics hardware. Important for visual processing and complex calculations.' },
+        { id: 'ram', title: 'Memory', label: 'RAM Usage', value: (lastData?.ram ?? lastData?.ram_usage ?? 0).toFixed(1), unit: '%', icon: <HardDrive className="w-5 h-5" />, color: 'orange', info: 'Short-term memory usage. More memory usage means more apps are running at once.' },
+        { id: 'network_rx', title: 'Network', label: 'Incoming', value: (lastData?.network_rx ?? 0).toFixed(3), unit: 'MB/s', icon: <Wifi className="w-5 h-5" />, color: 'orange', info: 'Speed of data coming into the system from the internet.' }
     ], [lastData])
 
     const activeMetricData = currentMetrics.find(m => m.id === selectedMetric)
 
     return (
         <div className="h-screen overflow-hidden bg-[#FAFAFA] text-zinc-900 font-sans flex flex-col p-2 sm:p-4 lg:p-6 gap-4 lg:gap-6 relative selection:bg-orange-500/20">
+            <style jsx global>{`
+                @media print {
+                    .no-print { display: none !important; }
+                    .print-only { display: block !important; }
+                    body { background: white !important; padding: 0 !important; margin: 0 !important; }
+                    .h-screen { height: auto !important; overflow: visible !important; }
+                    aside, header, .sidebar-filters, .action-buttons { display: none !important; }
+                    .main-content { padding: 0 !important; margin: 0 !important; width: 100% !important; }
+                    .glass-panel { background: white !important; box-shadow: none !important; border: 1px solid #eee !important; }
+                }
+                .print-only { display: none; }
+            `}</style>
+            
             <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden flex justify-center items-center">
                 <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[60%] bg-orange-500/5 blur-[140px] rounded-full" />
                 <div className="absolute bottom-[-20%] right-[-10%] w-[70%] h-[60%] bg-orange-600/5 blur-[140px] rounded-full" />
@@ -653,12 +705,22 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     <span className="text-2xl font-black text-zinc-900 tracking-tighter">
                                         {totalUnits > 0 ? Math.round((activeUnits / totalUnits) * 100) : 100}%
                                     </span>
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                                    <div className={cn(
+                                        "w-1.5 h-1.5 rounded-full",
+                                        activeUnits === totalUnits ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" : "bg-amber-500 animate-pulse"
+                                    )} />
                                 </div>
                             </div>
-                            <span className="px-3 py-1.5 rounded-xl bg-white/90 backdrop-blur-sm ring-1 ring-white shadow-sm text-[10px] font-black text-zinc-800 uppercase tracking-tighter">
-                                {activeUnits} Connected
-                            </span>
+                            <div className="flex flex-col items-end gap-1">
+                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-[9px] font-black text-emerald-600 ring-1 ring-emerald-100 uppercase tracking-tighter">
+                                    {activeUnits} Connected
+                                </span>
+                                {units.some(u => getHealthStatus(u) === 'warning' || getHealthStatus(u) === 'critical') && (
+                                    <span className="px-2.5 py-1 rounded-lg bg-red-50 text-[9px] font-black text-red-600 ring-1 ring-red-100 uppercase tracking-tighter animate-pulse">
+                                        {units.filter(u => getHealthStatus(u) === 'warning' || getHealthStatus(u) === 'critical').length} Issues
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
                         <div className="w-full bg-zinc-200/50 rounded-full h-1.5 overflow-hidden shadow-inner relative z-10">
@@ -694,8 +756,26 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="px-4 lg:px-5 flex flex-col gap-2.5 pb-2">
+                    {/* Action Buttons & Filters */}
+                    <div className="px-4 lg:px-5 flex flex-col gap-4 pb-2">
+                        {/* Quick Filters */}
+                        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-2 mask-linear-right">
+                            {(['all', 'connected', 'warning', 'critical', 'disconnected'] as const).map((status) => (
+                                <button
+                                    key={status}
+                                    onClick={() => setFilterStatus(status)}
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all ring-1",
+                                        filterStatus === status
+                                            ? "bg-zinc-900 text-white ring-zinc-900 shadow-md"
+                                            : "bg-white/50 text-zinc-500 ring-white/60 hover:bg-white hover:text-zinc-800"
+                                    )}
+                                >
+                                    {status}
+                                </button>
+                            ))}
+                        </div>
+                        
                         <button
                             onClick={() => setIsAddNodeOpen(true)}
                             className="w-full py-4 bg-zinc-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 hover:shadow-[0_12px_24px_rgba(0,0,0,0.15)] hover:scale-[1.01] active:scale-95 transition-all duration-300 group ring-1 ring-zinc-800/50"
@@ -809,15 +889,23 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                                     {unit.name.split('/').pop()}
                                                                 </span>
                                                                 <span className={cn("text-[9px] font-bold transition-opacity", 
-                                                                    isOnline ? 'text-emerald-500' : isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
+                                                                    getHealthStatus(unit) === 'healthy' ? 'text-emerald-500' : 
+                                                                    getHealthStatus(unit) === 'warning' ? 'text-amber-500' :
+                                                                    getHealthStatus(unit) === 'critical' ? 'text-red-500' :
+                                                                    isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
                                                                 )}>
-                                                                    {isOnline ? 'REAL-TIME ACTIVE' : isPending ? 'SETUP REQUIRED' : 'OFFLINE'}
+                                                                    {getHealthStatus(unit) === 'healthy' ? 'CONNECTED' : 
+                                                                     getHealthStatus(unit) === 'warning' ? 'HIGH LOAD' :
+                                                                     getHealthStatus(unit) === 'critical' ? 'CRITICAL' :
+                                                                     isPending ? 'WAITING' : 'DISCONNECTED'}
                                                                 </span>
                                                             </div>
                                                         </div>
-                                                        <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm",
-                                                            isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
-                                                            isPending ? 'bg-orange-400' : 'bg-zinc-300'
+                                                        <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm transition-colors",
+                                                            getHealthStatus(unit) === 'healthy' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
+                                                            getHealthStatus(unit) === 'warning' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' :
+                                                            getHealthStatus(unit) === 'critical' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]' :
+                                                            isPending ? 'bg-orange-400 animate-pulse' : 'bg-zinc-300'
                                                         )} />
                                                     </div>
                                                 </motion.div>
@@ -1265,6 +1353,10 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                             <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
+                                            <button onClick={() => window.print()} className="p-3 bg-white hover:bg-zinc-900 hover:text-white text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20" title="Official Print">
+                                                <Activity className="w-4 h-4" />
+                                            </button>
+                                            <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
                                             <button onClick={handleCustomDownload} className="flex items-center gap-2 px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl transition-all shadow-lg active:scale-95">
                                                 <Download className="w-4 h-4" />
                                                 <span className="hidden sm:inline text-[11px] font-black uppercase tracking-[0.2em]">Export Data</span>
@@ -1390,10 +1482,15 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                         )}>
                                                             {metric.icon}
                                                         </div>
-                                                        <span className={cn(
-                                                            "text-[9px] font-black uppercase tracking-[0.2em] transition-colors",
-                                                            selectedMetric === metric.id ? 'text-orange-600' : 'text-zinc-400'
-                                                        )}>{metric.title}</span>
+                                                        <div className="relative group/tip flex items-center justify-center">
+                                                            <div className="p-1 px-1.5 rounded-lg bg-zinc-100/50 text-zinc-400 hover:bg-zinc-900 hover:text-white transition-all cursor-help scale-90 group-hover:scale-100">
+                                                                <span className="text-[10px] font-black">i</span>
+                                                            </div>
+                                                            <div className="absolute bottom-full mb-3 right-0 w-48 p-3 bg-zinc-900 text-white text-[10px] font-bold rounded-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none z-[100] shadow-2xl scale-95 group-hover/tip:scale-100 origin-bottom-right">
+                                                                {metric.info}
+                                                                <div className="absolute top-full right-4 border-8 border-transparent border-t-zinc-900" />
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                     <div className="space-y-1">
                                                         <p className={cn(
