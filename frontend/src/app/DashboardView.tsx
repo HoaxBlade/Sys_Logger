@@ -77,7 +77,7 @@ const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void })
                             "text-[10px] font-black uppercase tracking-[0.2em]",
                             isOnline ? "text-emerald-600" : "text-zinc-400"
                         )}>
-                            {isOnline ? 'Online' : isPending ? 'Pending' : 'Offline'}
+                            {isOnline ? 'Connected' : isPending ? 'Waiting' : 'Disconnected'}
                         </span>
                     </div>
                     <h3 className="font-black text-lg tracking-tighter text-zinc-900 truncate leading-none mt-1">
@@ -593,7 +593,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     </div>
                     <span className="text-[9px] text-green-600 flex items-center gap-1.5 font-bold uppercase tracking-[0.1em] mt-1 bg-green-50 px-2.5 py-0.5 rounded-md ring-1 ring-green-200/50">
                         <Shield className="w-3 h-3 text-green-500" />
-                        <span className="hidden sm:inline">Secure Link Active</span>
+                        <span className="hidden sm:inline">Connection Secure</span>
                         <span className="sm:hidden">Secure</span>
                     </span>
                 </div>
@@ -648,7 +648,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                         
                         <div className="flex justify-between items-end mb-4 relative z-10">
                             <div>
-                                <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-1">Fleet Health</h3>
+                                <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-1">System Health</h3>
                                 <div className="flex items-center gap-2">
                                     <span className="text-2xl font-black text-zinc-900 tracking-tighter">
                                         {totalUnits > 0 ? Math.round((activeUnits / totalUnits) * 100) : 100}%
@@ -657,7 +657,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 </div>
                             </div>
                             <span className="px-3 py-1.5 rounded-xl bg-white/90 backdrop-blur-sm ring-1 ring-white shadow-sm text-[10px] font-black text-zinc-800 uppercase tracking-tighter">
-                                {activeUnits} Online
+                                {activeUnits} Connected
                             </span>
                         </div>
 
@@ -701,7 +701,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                             className="w-full py-4 bg-zinc-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 hover:shadow-[0_12px_24px_rgba(0,0,0,0.15)] hover:scale-[1.01] active:scale-95 transition-all duration-300 group ring-1 ring-zinc-800/50"
                         >
                             <Zap className="w-4 h-4 text-orange-400 group-hover:text-orange-300 group-hover:drop-shadow-[0_0_8px_rgba(251,146,60,0.8)] transition-all" />
-                            Deploy Monitor
+                            Set Up Monitor
                         </button>
 
                         {user?.role === 'ROOT' && (
@@ -719,7 +719,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     )}
                                 >
                                     <Shield className="w-4 h-4" />
-                                    {activeTab === 'management' ? 'Exit Management' : 'System Management'}
+                                    {activeTab === 'management' ? 'Exit Settings' : 'System Settings'}
                                 </button>
                                 
                                 {activeTab === 'management' && user?.org_id && (
@@ -727,7 +727,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         onClick={() => {
                                             setReportTarget({
                                                 id: user.org_id.toString(),
-                                                name: 'Full Fleet Audit',
+                                                name: 'Full Health Report',
                                                 type: 'org'
                                             });
                                             setIsReportModalOpen(true);
@@ -735,7 +735,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         className="w-full py-3.5 bg-zinc-900 border border-zinc-700 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 hover:bg-zinc-800 transition-all hover:scale-[1.01] shadow-lg shadow-zinc-900/10"
                                     >
                                         <Activity className="w-4 h-4 text-orange-400" />
-                                        Generate Fleet Audit
+                                        Download Health Report
                                     </button>
                                 )}
                             </div>
@@ -753,12 +753,12 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
                                     className="w-8 h-8 border-2 border-zinc-200 border-t-orange-500 rounded-full"
                                 />
-                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">Syncing Nodes...</span>
+                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">Syncing Systems...</span>
                             </div>
                         ) : units.length === 0 ? (
                             <div className="text-center p-10 bg-white/40 rounded-3xl border border-dashed border-zinc-200 m-2">
                                 <Server className="w-8 h-8 text-zinc-300 mx-auto mb-3 opacity-50" />
-                                <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">Empty Fleet</p>
+                                <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">No Systems Found</p>
                             </div>
                         ) : (
                             Object.entries(
@@ -1417,11 +1417,11 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         <div className="flex-1 bg-white/40 backdrop-blur-3xl p-6 lg:p-8 rounded-[3rem] ring-1 ring-white shadow-xl flex flex-col min-w-0 min-h-0 transition-all duration-500 hover:shadow-2xl">
                                             <div className="flex justify-between items-end mb-8">
                                                 <div className="space-y-1">
-                                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Live Telemetry Analysis</h3>
+                                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time Usage Details</h3>
                                                     <h2 className="text-2xl lg:text-3xl font-black text-zinc-900 tracking-tighter uppercase leading-none">{activeMetricData?.label}</h2>
                                                 </div>
                                                 <div className="text-center bg-white/60 backdrop-blur-md px-8 py-4 rounded-[2rem] ring-1 ring-white/50 shadow-sm min-w-[140px]">
-                                                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 block mb-1">Live Telemetry</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 block mb-1">Live Status</span>
                                                     <span className="text-3xl font-black font-mono text-zinc-900 tracking-tighter leading-none">
                                                         {activeMetricData?.value}<span className="text-xs text-zinc-400 font-bold uppercase ml-1">{activeMetricData?.unit}</span>
                                                     </span>
@@ -1465,17 +1465,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                             >
                                 <div className="flex items-center justify-between mb-8 shrink-0 pt-2 px-1">
                                     <div className="space-y-1">
-                                        <h2 className="text-3xl font-black text-zinc-900 tracking-tighter uppercase leading-none">Fleet Overview</h2>
-                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time health telemetry across {units.length} active monitors</p>
+                                        <h2 className="text-3xl font-black text-zinc-900 tracking-tighter uppercase leading-none">System List</h2>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time usage details across {units.length} registered systems</p>
                                     </div>
                                     <div className="hidden sm:flex items-center gap-4 bg-white/60 backdrop-blur-md p-4 rounded-[2rem] ring-1 ring-white shadow-sm">
                                         <div className="flex items-center gap-3 pr-4 border-r border-zinc-100">
                                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-                                            <span className="text-[11px] font-black text-zinc-900 uppercase tracking-tight">{activeUnits} Online</span>
+                                            <span className="text-[11px] font-black text-zinc-900 uppercase tracking-tight">{activeUnits} Connected</span>
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
-                                            <span className="text-[11px] font-black text-zinc-500 uppercase tracking-tight">{totalUnits - activeUnits} Offline</span>
+                                            <span className="text-[11px] font-black text-zinc-500 uppercase tracking-tight">{totalUnits - activeUnits} Disconnected</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1494,7 +1494,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 onClick={() => setIsAddNodeOpen(true)}
                                                 className="bg-zinc-900 text-white rounded-2xl py-4 px-8 font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-xl shadow-zinc-900/10"
                                             >
-                                                <Zap className="w-4 h-4 text-orange-400" /> Deploy First Monitor
+                                                <Zap className="w-4 h-4 text-orange-400" /> Set Up First Monitor
                                             </button>
                                         </div>
                                     ) : (
