@@ -48,8 +48,15 @@ const getHealthStatus = (unit: Unit) => {
     const ram = unit.metrics?.ram ?? 0;
     
     if (cpu > 90 || ram > 90) return 'critical';
-    if (cpu > 70 || ram > 80) return 'warning';
+    if (cpu > 70 || ram > 70) return 'warning';
     return 'healthy';
+};
+
+// Security: Defensive Sanitization Helper
+const sanitizeText = (text: string | null | undefined): string => {
+    if (!text) return '';
+    // Basic sanitization to strip any potential HTML-like tags from remote sources
+    return text.toString().replace(/<[^>]*>/g, '').trim();
 };
 
 const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void }) => {
@@ -876,7 +883,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
                                         <div className="flex items-center gap-2 px-2">
                                             <span className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-600">
-                                                {org}
+                                                {sanitizeText(org)}
                                             </span>
                                             <motion.div
                                                 animate={{ rotate: collapsedOrgs.includes(org) ? -90 : 0 }}
@@ -926,7 +933,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                                         </div>
                                                                         <div className="flex flex-col min-w-0">
                                                                             <span className={cn("font-black truncate text-[13px] tracking-tight transition-colors", isSelected ? 'text-zinc-900' : 'text-zinc-700 group-hover/card:text-zinc-900')}>
-                                                                                {unit.name.split('/').pop()}
+                                                                                {sanitizeText(unit.name.split('/').pop() || '')}
                                                                             </span>
                                                                             <span className={cn("text-[9px] font-bold transition-opacity", 
                                                                                 (user?.role === 'ROOT' && (getHealthStatus(unit) === 'healthy' || getHealthStatus(unit) === 'warning')) ? 'text-emerald-500' :

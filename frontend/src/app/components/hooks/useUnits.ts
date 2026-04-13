@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Unit, Alert } from '../types'
 import { apiFetch } from './apiUtils'
+import { useAuth } from '../AuthContext'
 
 export const useUnits = (orgId?: string) => {
+  const { user } = useAuth()
   const [units, setUnits] = useState<Unit[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
@@ -12,6 +14,11 @@ export const useUnits = (orgId?: string) => {
 
   const fetchUnits = useCallback(async () => {
     try {
+      // Security Guard: Prevent non-ROOT users from accessing other orgs
+      if (orgId && user && user.role !== 'ROOT' && orgId !== user.org_id) {
+        throw new Error('Security Error: Unauthorized organization access attempt.')
+      }
+
       const endpoint = orgId ? `/api/orgs/${orgId}/units` : '/api/units'
       const response = await apiFetch(endpoint)
       if (!response.ok) {
