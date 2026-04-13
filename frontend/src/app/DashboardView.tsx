@@ -1488,7 +1488,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                             )}>
                                                                 {metric.icon}
                                                             </div>
-                                                            <div className="relative group/tip flex items-center justify-center p-1.5 rounded-xl bg-zinc-100/50 text-zinc-400 hover:bg-zinc-900 hover:text-white transition-all cursor-help scale-90 group-hover:scale-100">
+                                                            <div className="relative group/tip flex items-center justify-center p-1.5 rounded-xl bg-zinc-100/50 text-zinc-400 hover:bg-zinc-900 hover:text-white transition-all scale-90 group-hover:scale-100">
                                                                 <span className="text-[10px] font-black">i</span>
                                                                 
                                                                 {/* In-Card Info Overlay */}
@@ -1529,7 +1529,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="flex-1 min-h-0 relative bg-zinc-100/80 rounded-3xl ring-1 ring-zinc-200/50 p-6 shadow-inner">
+                                            <div className="flex-1 min-h-0 relative bg-zinc-100/80 rounded-3xl ring-1 ring-zinc-200/50 p-6">
                                                 <UsageGraph data={usageData} metric={selectedMetric} className="h-full" />
                                             </div>
                                         </div>
