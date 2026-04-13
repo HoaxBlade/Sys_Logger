@@ -13,7 +13,7 @@ import { twMerge } from 'tailwind-merge'
 import { Unit, UsageData } from './components/types'
 import {
     Monitor, Server, Database, Globe,
-    ChevronRight, Download, Cpu, HardDrive,
+    ChevronRight, ChevronDown, Download, Cpu, HardDrive,
     Wifi, Zap, Clock, AlertTriangle,
     Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut
 } from 'lucide-react'
@@ -293,6 +293,25 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const [isReportModalOpen, setIsReportModalOpen] = useState(false)
     const [reportTarget, setReportTarget] = useState<{id: string, name: string, type: 'node' | 'org'}>({id: '', name: '', type: 'node'})
     const [logoIndex, setLogoIndex] = useState(0)
+
+    // Sidebar Collapsible Groups
+    const [collapsedOrgs, setCollapsedOrgs] = useState<string[]>([])
+    
+    const toggleOrgCollapse = (orgName: string) => {
+        setCollapsedOrgs(prev => 
+            prev.includes(orgName) 
+                ? prev.filter(o => o !== orgName) 
+                : [...prev, orgName]
+        );
+    };
+
+    // Auto-expand orgs when searching
+    useEffect(() => {
+        if (searchQuery.trim()) {
+            const orgsWithResults = new Set(sortedUnits.map(u => u.org_name || 'Global'));
+            setCollapsedOrgs(prev => prev.filter(org => !orgsWithResults.has(org)));
+        }
+    }, [searchQuery, sortedUnits]);
 
     // Dynamic logos configuration
     const logos = useMemo(() => [
@@ -850,70 +869,94 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 }, {} as Record<string, Unit[]>)
                             ).map(([org, orgUnits]) => (
                                 <div key={org} className="space-y-3">
-                                    <div className="flex items-center gap-3 px-1 mb-3">
+                                    <button 
+                                        onClick={() => toggleOrgCollapse(org)}
+                                        className="flex items-center gap-3 px-1 mb-3 group/header w-full hover:opacity-80 transition-opacity"
+                                    >
                                         <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
-                                        <span className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400 px-2">
-                                            {org}
-                                        </span>
+                                        <div className="flex items-center gap-2 px-2">
+                                            <span className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-600">
+                                                {org}
+                                            </span>
+                                            <motion.div
+                                                animate={{ rotate: collapsedOrgs.includes(org) ? -90 : 0 }}
+                                                className="text-zinc-500 group-hover/header:text-orange-500 transition-colors"
+                                            >
+                                                <ChevronDown size={10} />
+                                            </motion.div>
+                                        </div>
                                         <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
-                                    </div>
-                                    <div className="space-y-2.5">
-                                        {orgUnits.map((unit) => {
-                                            const isSelected = selectedUnitId === unit.id;
-                                            const isOnline = unit.status === 'online';
-                                            const isPending = unit.status === 'pending';
+                                    </button>
+                                    
+                                    <AnimatePresence initial={false}>
+                                        {!collapsedOrgs.includes(org) && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: "auto", opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.3, ease: "easeInOut" }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="space-y-2.5 pb-2">
+                                                    {orgUnits.map((unit) => {
+                                                        const isSelected = selectedUnitId === unit.id;
+                                                        const isOnline = unit.status === 'online';
+                                                        const isPending = unit.status === 'pending';
 
-                                            return (
-                                                <motion.div
-                                                    key={unit.id}
-                                                    whileHover={{ x: 4 }}
-                                                    onClick={() => handleUnitToggle(unit)}
-                                                    className={cn(
-                                                        "w-full text-left p-4 rounded-[1.5rem] transition-all duration-300 relative overflow-hidden group/card cursor-pointer",
-                                                        isSelected
-                                                            ? 'bg-white shadow-[0_12px_30px_rgba(249,115,22,0.12)] ring-1 ring-orange-400/50 scale-[1.02]'
-                                                            : 'hover:bg-white hover:shadow-xl hover:shadow-zinc-900/5'
-                                                    )}
-                                                >
-                                                    <div className="flex justify-between items-start relative z-10">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className={cn("p-2.5 rounded-2xl transition-all duration-300",
-                                                                isSelected 
-                                                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
-                                                                    : 'bg-zinc-100 text-zinc-400 group-hover/card:bg-orange-50 group-hover/card:text-orange-500'
-                                                            )}>
-                                                                <Monitor size={16} />
-                                                            </div>
-                                                            <div className="flex flex-col min-w-0">
-                                                                <span className={cn("font-black truncate text-[13px] tracking-tight transition-colors", isSelected ? 'text-zinc-900' : 'text-zinc-700 group-hover/card:text-zinc-900')}>
-                                                                    {unit.name.split('/').pop()}
-                                                                </span>
-                                                                <span className={cn("text-[9px] font-bold transition-opacity", 
-                                                                    (user?.role === 'ROOT' && (getHealthStatus(unit) === 'healthy' || getHealthStatus(unit) === 'warning')) ? 'text-emerald-500' :
-                                                                    getHealthStatus(unit) === 'healthy' ? 'text-emerald-500' : 
-                                                                    getHealthStatus(unit) === 'warning' ? 'text-amber-500' :
-                                                                    getHealthStatus(unit) === 'critical' ? 'text-red-500' :
-                                                                    isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
-                                                                )}>
-                                                                    {getHealthStatus(unit) === 'healthy' ? 'CONNECTED' : 
-                                                                     getHealthStatus(unit) === 'warning' ? 'HIGH LOAD' :
-                                                                     getHealthStatus(unit) === 'critical' ? 'CRITICAL' :
-                                                                     isPending ? 'WAITING' : 'DISCONNECTED'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm transition-colors",
-                                                            (user?.role === 'ROOT' && isOnline) ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
-                                                            getHealthStatus(unit) === 'healthy' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
-                                                            getHealthStatus(unit) === 'warning' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' :
-                                                            getHealthStatus(unit) === 'critical' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]' :
-                                                            isPending ? 'bg-orange-400 animate-pulse' : 'bg-zinc-300'
-                                                        )} />
-                                                    </div>
-                                                </motion.div>
-                                            )
-                                        })}
-                                    </div>
+                                                        return (
+                                                            <motion.div
+                                                                key={unit.id}
+                                                                whileHover={{ x: 4 }}
+                                                                onClick={() => handleUnitToggle(unit)}
+                                                                className={cn(
+                                                                    "w-full text-left p-4 rounded-[1.5rem] transition-all duration-300 relative overflow-hidden group/card cursor-pointer",
+                                                                    isSelected
+                                                                        ? 'bg-white shadow-[0_12px_30px_rgba(249,115,22,0.12)] ring-1 ring-orange-400/50 scale-[1.02]'
+                                                                        : 'hover:bg-white hover:shadow-xl hover:shadow-zinc-900/5'
+                                                                )}
+                                                            >
+                                                                <div className="flex justify-between items-start relative z-10">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className={cn("p-2.5 rounded-2xl transition-all duration-300",
+                                                                            isSelected 
+                                                                                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' 
+                                                                                : 'bg-zinc-100 text-zinc-400 group-hover/card:bg-orange-50 group-hover/card:text-orange-500'
+                                                                        )}>
+                                                                            <Monitor size={16} />
+                                                                        </div>
+                                                                        <div className="flex flex-col min-w-0">
+                                                                            <span className={cn("font-black truncate text-[13px] tracking-tight transition-colors", isSelected ? 'text-zinc-900' : 'text-zinc-700 group-hover/card:text-zinc-900')}>
+                                                                                {unit.name.split('/').pop()}
+                                                                            </span>
+                                                                            <span className={cn("text-[9px] font-bold transition-opacity", 
+                                                                                (user?.role === 'ROOT' && (getHealthStatus(unit) === 'healthy' || getHealthStatus(unit) === 'warning')) ? 'text-emerald-500' :
+                                                                                getHealthStatus(unit) === 'healthy' ? 'text-emerald-500' : 
+                                                                                getHealthStatus(unit) === 'warning' ? 'text-amber-500' :
+                                                                                getHealthStatus(unit) === 'critical' ? 'text-red-500' :
+                                                                                isPending ? 'text-orange-500 animate-pulse' : 'text-zinc-400 opacity-60'
+                                                                            )}>
+                                                                                {getHealthStatus(unit) === 'healthy' ? 'CONNECTED' : 
+                                                                                 getHealthStatus(unit) === 'warning' ? 'HIGH LOAD' :
+                                                                                 getHealthStatus(unit) === 'critical' ? 'CRITICAL' :
+                                                                                 isPending ? 'WAITING' : 'DISCONNECTED'}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0 shadow-sm transition-colors",
+                                                                        (user?.role === 'ROOT' && isOnline) ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
+                                                                        getHealthStatus(unit) === 'healthy' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' :
+                                                                        getHealthStatus(unit) === 'warning' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' :
+                                                                        getHealthStatus(unit) === 'critical' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]' :
+                                                                        isPending ? 'bg-orange-400 animate-pulse' : 'bg-zinc-300'
+                                                                    )} />
+                                                                </div>
+                                                            </motion.div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
                             ))
                         )}
