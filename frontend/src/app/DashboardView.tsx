@@ -44,75 +44,130 @@ import { useRouter } from 'next/navigation';
 
 const CompactStatCard = ({ unit, onClick }: { unit: Unit; onClick: () => void }) => {
     const isOnline = unit.status === 'online';
+    const isPending = unit.status === 'pending';
     const metrics = unit.metrics;
 
     return (
         <motion.button
-            whileHover={{ scale: 1.02, y: -4 }}
+            whileHover={{ y: -6, scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
             onClick={onClick}
             className={cn(
-                "flex flex-col p-5 bg-white rounded-3xl ring-1 text-left group overflow-hidden relative transition-shadow duration-300 hover:z-20",
+                "flex flex-col p-6 rounded-[2.5rem] text-left group relative overflow-hidden transition-all duration-500",
                 isOnline
-                    ? "ring-zinc-200 hover:ring-orange-400 hover:shadow-[0_20px_40px_-15px_rgba(249,115,22,0.1)]"
-                    : "ring-zinc-100 opacity-60 hover:opacity-100 grayscale hover:grayscale-0"
+                    ? "bg-white/60 backdrop-blur-3xl ring-1 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.04)] hover:shadow-[0_20px_50px_rgba(249,115,22,0.12)] hover:ring-orange-200/50"
+                    : "bg-white/20 backdrop-blur-md ring-1 ring-zinc-200/50 opacity-70 grayscale hover:grayscale-0 hover:opacity-100"
             )}
         >
-            {isOnline && (
-                <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/5 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-orange-500/10 transition-colors" />
-            )}
+            {/* Background Accent */}
+            <div className={cn(
+                "absolute top-0 right-0 w-32 h-32 blur-[60px] rounded-full -mr-16 -mt-16 transition-colors duration-700",
+                isOnline ? "bg-orange-500/10 group-hover:bg-orange-500/20" : "bg-zinc-400/5"
+            )} />
 
-            <div className="flex justify-between items-center mb-4 relative z-10">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={cn(
-                        "w-2.5 h-2.5 rounded-full ring-4 shadow-sm",
-                        isOnline ? "bg-emerald-500 ring-emerald-500/20 animate-pulse" : "bg-zinc-300 ring-zinc-300/20"
-                    )} />
-                    <h3 className="font-black text-[11px] uppercase tracking-wider text-zinc-800 truncate">{unit.name.split('/').pop()}</h3>
+            <div className="flex justify-between items-start mb-6 relative z-10">
+                <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                        <div className={cn(
+                            "w-2 h-2 rounded-full",
+                            isOnline ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" : 
+                            isPending ? "bg-orange-400 animate-bounce" : "bg-zinc-300"
+                        )} />
+                        <span className={cn(
+                            "text-[10px] font-black uppercase tracking-[0.2em]",
+                            isOnline ? "text-emerald-600" : "text-zinc-400"
+                        )}>
+                            {isOnline ? 'Online' : isPending ? 'Pending' : 'Offline'}
+                        </span>
+                    </div>
+                    <h3 className="font-black text-lg tracking-tighter text-zinc-900 truncate leading-none mt-1">
+                        {unit.name.split('/').pop()}
+                    </h3>
                 </div>
-                <div className="p-1.5 rounded-lg bg-zinc-50 text-zinc-400 group-hover:text-orange-500 group-hover:bg-orange-50 transition-all">
-                    <ChevronRight size={14} />
+                <div className="p-2.5 rounded-2xl bg-white/80 shadow-sm ring-1 ring-black/5 text-zinc-400 group-hover:text-orange-500 transition-all duration-300">
+                    <ChevronRight size={18} />
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-y-4 gap-x-6 relative z-10">
-                <div className="flex flex-col gap-0.5">
-                    <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
-                        <Cpu size={10} className="text-zinc-300" /> CPU
-                    </span>
-                    <span className="text-lg font-black font-mono text-zinc-900 tracking-tighter leading-none">
-                        {metrics?.cpu !== undefined ? metrics.cpu.toFixed(0) : '--'}<span className="text-[10px] text-zinc-400 font-bold ml-0.5">%</span>
-                    </span>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-5 relative z-10">
+                <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                            <Cpu size={11} /> CPU
+                        </span>
+                        <span className="text-[10px] font-black text-zinc-900 font-mono">
+                            {metrics?.cpu !== undefined ? metrics.cpu.toFixed(0) : '0'}%
+                        </span>
+                    </div>
+                    <div className="h-1 w-full bg-zinc-100 rounded-full overflow-hidden">
+                        <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${metrics?.cpu || 0}%` }}
+                            className={cn(
+                                "h-full rounded-full transition-colors",
+                                (metrics?.cpu || 0) > 80 ? 'bg-orange-500' : 'bg-zinc-900'
+                            )} 
+                        />
+                    </div>
                 </div>
-                <div className="flex flex-col gap-0.5 items-end">
-                    <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
-                        <HardDrive size={10} className="text-zinc-300" /> RAM
-                    </span>
-                    <span className="text-lg font-black font-mono text-zinc-900 tracking-tighter leading-none">
-                        {metrics?.ram !== undefined ? metrics.ram.toFixed(0) : '--'}<span className="text-[10px] text-zinc-400 font-bold ml-0.5">%</span>
-                    </span>
+
+                <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                            <HardDrive size={11} /> RAM
+                        </span>
+                        <span className="text-[10px] font-black text-zinc-900 font-mono">
+                            {metrics?.ram !== undefined ? metrics.ram.toFixed(0) : '0'}%
+                        </span>
+                    </div>
+                    <div className="h-1 w-full bg-zinc-100 rounded-full overflow-hidden">
+                        <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${metrics?.ram || 0}%` }}
+                            className="h-full bg-zinc-900 rounded-full" 
+                        />
+                    </div>
                 </div>
-                <div className="flex flex-col gap-0.5">
-                    <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
-                        <Zap size={10} className="text-zinc-300" /> GPU
-                    </span>
-                    <span className="text-lg font-black font-mono text-zinc-900 tracking-tighter leading-none">
-                        {metrics?.gpu !== undefined ? metrics.gpu.toFixed(0) : '--'}<span className="text-[10px] text-zinc-400 font-bold ml-0.5">%</span>
-                    </span>
+
+                <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                            <Zap size={11} /> GPU
+                        </span>
+                        <span className="text-[10px] font-black text-zinc-900 font-mono">
+                            {metrics?.gpu !== undefined ? metrics.gpu.toFixed(0) : '0'}%
+                        </span>
+                    </div>
+                    <div className="h-1 w-full bg-zinc-100 rounded-full overflow-hidden">
+                        <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${metrics?.gpu || 0}%` }}
+                            className="h-full bg-emerald-500 rounded-full" 
+                        />
+                    </div>
                 </div>
-                <div className="flex flex-col gap-0.5 items-end">
-                    <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
-                        <Wifi size={10} className="text-zinc-300" /> NET
+
+                <div className="space-y-1.5 text-right">
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1 justify-end mb-1">
+                        <Wifi size={11} /> NET
                     </span>
-                    <span className="text-lg font-black font-mono text-zinc-900 tracking-tighter leading-none">
-                        {metrics?.network_rx !== undefined ? metrics.network_rx.toFixed(1) : '--'}<span className="text-[8px] text-zinc-400 font-bold ml-0.5">MB/s</span>
-                    </span>
+                    <p className="text-lg font-black font-mono text-zinc-900 tracking-tighter leading-none">
+                        {metrics?.network_rx !== undefined ? metrics.network_rx.toFixed(1) : '0'}<span className="text-[9px] opacity-30 ml-0.5 whitespace-nowrap">MB/s</span>
+                    </p>
                 </div>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-zinc-50 flex items-center justify-between text-[9px] font-bold text-zinc-400">
-                <span className="truncate max-w-[100px]">{unit.ip || 'no-ip'}</span>
-                <span suppressHydrationWarning>{unit.last_seen ? new Date(unit.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'never'}</span>
+            <div className="mt-6 pt-5 border-t border-zinc-100/50 flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-2">
+                    <Globe size={12} className="text-zinc-300" />
+                    <span className="text-[10px] font-bold text-zinc-400 tracking-tight">{unit.ip || 'DISCONNECTED'}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <div className="w-1 h-1 rounded-full bg-zinc-300" />
+                    <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest" suppressHydrationWarning>
+                        {unit.last_seen ? new Date(unit.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'NEVER'}
+                    </span>
+                </div>
             </div>
         </motion.button>
     );
@@ -577,7 +632,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     {/* Header: Menu Title */}
                     <div className="flex items-center justify-between p-4 border-b border-white/60 lg:hidden bg-white/60 backdrop-blur-md">
                         <span className="font-black text-zinc-800 text-xs tracking-widest uppercase flex items-center gap-2">
-                            <Activity size={16} className="text-orange-500" /> Control Deck
+                            <Activity size={16} className="text-orange-500" /> System Control
                         </span>
                         <button
                             onClick={() => setIsMobileMenuOpen(false)}
@@ -664,7 +719,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     )}
                                 >
                                     <Shield className="w-4 h-4" />
-                                    {activeTab === 'management' ? 'Exit Admin' : 'Admin Nexus'}
+                                    {activeTab === 'management' ? 'Exit Management' : 'System Management'}
                                 </button>
                                 
                                 {activeTab === 'management' && user?.org_id && (
@@ -1074,7 +1129,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     <div>
                                         <div className="flex items-center gap-2 text-orange-500 mb-2">
                                             <Activity size={20} />
-                                            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Data Audit Engine</span>
+                                            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Fleet Audit Engine</span>
                                         </div>
                                         <h2 className="text-3xl font-black text-zinc-900 tracking-tighter uppercase whitespace-pre-line">Audit & Export{"\n"}Generation</h2>
                                         <p className="text-sm font-bold text-zinc-400 mt-2 uppercase tracking-wide">Target: <span className="text-zinc-900">{reportTarget.name}</span></p>
@@ -1378,22 +1433,19 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 exit={{ opacity: 0, scale: 0.98 }}
                                 className="flex-1 flex flex-col min-h-0"
                             >
-                                <div className="flex items-center justify-between mb-6 shrink-0 pt-2 px-1">
-                                    <div>
-                                        <h2 className="text-2xl lg:text-3xl font-black text-zinc-900 tracking-tight uppercase">Fleet Overview</h2>
-                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 mt-1">Real-time health monitoring for {units.length} active nodes</p>
+                                <div className="flex items-center justify-between mb-8 shrink-0 pt-2 px-1">
+                                    <div className="space-y-1">
+                                        <h2 className="text-3xl font-black text-zinc-900 tracking-tighter uppercase leading-none">Fleet Overview</h2>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Real-time health telemetry across {units.length} active monitors</p>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="px-4 py-2 bg-white ring-1 ring-zinc-200 rounded-xl shadow-sm flex items-center gap-3">
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                                                <span className="text-[10px] font-black text-zinc-800 uppercase">{activeUnits} Online</span>
-                                            </div>
-                                            <div className="w-[1px] h-3 bg-zinc-200" />
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-2 h-2 rounded-full bg-zinc-300" />
-                                                <span className="text-[10px] font-black text-zinc-500 uppercase">{totalUnits - activeUnits} Offline</span>
-                                            </div>
+                                    <div className="hidden sm:flex items-center gap-4 bg-white/60 backdrop-blur-md p-4 rounded-[2rem] ring-1 ring-white shadow-sm">
+                                        <div className="flex items-center gap-3 pr-4 border-r border-zinc-100">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
+                                            <span className="text-[11px] font-black text-zinc-900 uppercase tracking-tight">{activeUnits} Online</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                                            <span className="text-[11px] font-black text-zinc-500 uppercase tracking-tight">{totalUnits - activeUnits} Offline</span>
                                         </div>
                                     </div>
                                 </div>
