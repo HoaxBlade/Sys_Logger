@@ -305,7 +305,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const [logoIndex, setLogoIndex] = useState(0)
 
     // Audit Trail State
-    const { logs, logAction, clearLogs } = useAuditLogs()
+    const { logs, logAction, clearLogs } = useAuditLogs(user?.org_id)
     const [isCommandLogOpen, setIsCommandLogOpen] = useState(false)
 
     // Sidebar Collapsible Groups
