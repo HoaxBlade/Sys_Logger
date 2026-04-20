@@ -273,7 +273,6 @@ class UnitClient:
         try:
             temps = psutil.sensors_temperatures()
             if temps:
-                # Get the highest temperature from available sensors
                 max_temp = 0
                 for sensor_name, sensors in temps.items():
                     for sensor in sensors:

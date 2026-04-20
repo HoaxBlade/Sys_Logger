@@ -16,6 +16,12 @@ echo ""
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Detect OS
+OS_TYPE="linux"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS_TYPE="mac"
+fi
+
 # ==========================================
 # Step 1: Check Prerequisites
 # ==========================================
@@ -94,18 +100,20 @@ echo "  ✅ Client is running"
 echo ""
 echo "[Step 5/5] Configuring auto-start on boot..."
 
-# Generate the startup script (works on systemd, upstart, launchd)
-# pm2 startup outputs a command that needs to be run with sudo
-STARTUP_CMD=$(pm2 startup 2>&1 | grep "sudo" | head -1)
-
-if [ -n "$STARTUP_CMD" ]; then
-    echo "  Running startup command..."
-    eval $STARTUP_CMD
-    echo "  ✅ Auto-start configured!"
+if [[ "$OS_TYPE" == "mac" ]]; then
+    echo "  Setting up macOS launchd service..."
+    pm2 startup launchd 2>/dev/null || true
 else
-    # If already configured, pm2 startup won't output a sudo command
-    pm2 startup 2>/dev/null || true
-    echo "  ✅ Auto-start already configured"
+    # Generate the startup script (works on systemd, upstart)
+    STARTUP_CMD=$(pm2 startup 2>&1 | grep "sudo" | head -1)
+    if [ -n "$STARTUP_CMD" ]; then
+        echo "  Running startup command..."
+        eval $STARTUP_CMD
+        echo "  ✅ Auto-start configured!"
+    else
+        pm2 startup 2>/dev/null || true
+        echo "  ✅ Auto-start already configured"
+    fi
 fi
 
 # Save again after startup setup
