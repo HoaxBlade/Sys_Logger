@@ -85,3 +85,5 @@ backend/sync_json_to_sql.py
 git_auto_pull.bat
 git_auto_pull.log
 register_auto_pull.ps1
+# Local scratch tools
+scratch/
