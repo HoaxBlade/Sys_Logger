@@ -1282,7 +1282,15 @@ def create_slot_order(current_user):
     if quantity < 1:
         return jsonify({'error': 'Minimum quantity is 1'}), 400
         
-    price_per_slot = 30  # Indian Rupees
+    # Fetch price from DB
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT price_monthly FROM pricing_plans WHERE slug = 'extra_node' AND is_active = TRUE")
+    plan = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    price_per_slot = int(plan['price_monthly']) if plan else 30
     total_amount = quantity * price_per_slot
     
     order_data = {
@@ -1363,9 +1371,12 @@ def verify_slot_payment(current_user):
             return jsonify({'error': 'Transaction record not found'}), 404
             
         # 3. Calculate quantity and update organization slots
-        # We assume ₹30 per slot based on the amount paid
+        cur.execute("SELECT price_monthly FROM pricing_plans WHERE slug = 'extra_node' AND is_active = TRUE")
+        plan_price = cur.fetchone()
+        current_price = int(plan_price['price_monthly']) if plan_price else 30
+        
         paid_amount = float(txn['amount'])
-        quantity = int(paid_amount / 30)
+        quantity = int(paid_amount / current_price)
         
         if quantity < 1:
             conn.rollback()

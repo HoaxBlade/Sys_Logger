@@ -661,6 +661,9 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     ], [lastData])
 
     const activeMetricData = currentMetrics.find(m => m.id === selectedMetric)
+    const slotPrice = useMemo(() => {
+        return plans.find(p => p.slug === 'extra_node')?.price_monthly ?? 30;
+    }, [plans]);
 
     return (
         <div className="h-screen overflow-hidden bg-[#FAFAFA] text-zinc-900 font-sans flex flex-col p-2 sm:p-4 lg:p-6 gap-4 lg:gap-6 relative selection:bg-orange-500/20">
@@ -1114,12 +1117,29 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     </div>
 
                                     {isLimitReached && (
-                                        <div className="flex items-center gap-3 bg-red-50 text-red-600 p-5 rounded-2xl text-[11px] font-black ring-1 ring-red-100">
-                                            <AlertTriangle className="w-5 h-5 shrink-0" />
-                                            <div className="flex flex-col gap-0.5">
-                                                <span>NODE LIMIT REACHED</span>
-                                                <span className="opacity-70 font-bold">You have used all { (user?.node_limit || 0) + (user?.extra_slots || 0) } available slots.</span>
+                                        <div className="flex flex-col gap-4 bg-red-50 p-6 rounded-[2rem] border border-red-100/50 shadow-sm">
+                                            <div className="flex items-center gap-3 text-red-600">
+                                                <AlertTriangle className="w-5 h-5 shrink-0" />
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[11px] font-black uppercase tracking-widest">Node Limit Reached</span>
+                                                    <span className="text-[10px] opacity-70 font-bold uppercase tracking-tight">You have used all { (user?.node_limit || 0) + (user?.extra_slots || 0) } available slots.</span>
+                                                </div>
                                             </div>
+                                            
+                                            <button 
+                                                onClick={handleBuySlot}
+                                                disabled={!!paymentLoading}
+                                                className="w-full bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-xl shadow-zinc-900/10 active:scale-[0.98] disabled:opacity-50"
+                                            >
+                                                {paymentLoading === 'extra_node' ? (
+                                                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        Add Individual Node (₹{slotPrice})
+                                                        <Zap size={14} className="text-orange-400" />
+                                                    </>
+                                                )}
+                                            </button>
                                         </div>
                                     )}
 
@@ -1150,7 +1170,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <button
                                                 onClick={handleAddNode}
-                                                disabled={isDownloading || isLimitReached}
+                                                disabled={isDownloading}
                                                 className="flex-1 bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed group shadow-lg"
                                             >
                                                 {isDownloading ? (
@@ -1164,7 +1184,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </button>
                                             <button
                                                 onClick={() => handleGenerateLink(newNodeName)}
-                                                disabled={isDownloading || isLimitReached}
+                                                disabled={isDownloading}
                                                 className="flex-1 bg-white text-zinc-700 ring-1 ring-zinc-200 rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:ring-zinc-300 hover:bg-zinc-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed group"
                                             >
                                                 {isDownloading ? (
