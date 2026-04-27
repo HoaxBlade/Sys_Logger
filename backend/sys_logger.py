@@ -671,7 +671,37 @@ ensure_schema_ready()
 
 class UnitStore:
     """Store for units and usage with PostgreSQL Persistence"""
-    
+
+    @staticmethod
+    def check_org_limit(org_id, current_user):
+        """
+        Check if an organization has reached its node limit.
+        Returns (is_reached, current_count, limit)
+        """
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            # 1. Get Org Limits
+            cur.execute("SELECT node_limit, extra_slots, tier FROM organizations WHERE org_id = %s", (org_id,))
+            org = cur.fetchone()
+            if not org:
+                return False, 0, 0
+                
+            # 2. Get Current System Count
+            cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
+            current_count = cur.fetchone()['count']
+            
+            total_limit = org['node_limit'] + org['extra_slots']
+            
+            # ROOT users are never limited
+            if current_user.get('role') == 'ROOT':
+                return False, current_count, total_limit
+                
+            return current_count >= total_limit, current_count, total_limit
+        finally:
+            cur.close()
+            conn.close()
+
     @staticmethod
     def _row_to_unit(row):
         """Convert a DB row to the frontend unit format"""
@@ -1113,35 +1143,6 @@ def get_orgs(current_user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    @staticmethod
-    def check_org_limit(org_id, current_user):
-        """
-        Check if an organization has reached its node limit.
-        Returns (is_reached, current_count, limit)
-        """
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        try:
-            # 1. Get Org Limits
-            cur.execute("SELECT node_limit, extra_slots, tier FROM organizations WHERE org_id = %s", (org_id,))
-            org = cur.fetchone()
-            if not org:
-                return False, 0, 0
-                
-            # 2. Get Current System Count
-            cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
-            current_count = cur.fetchone()['count']
-            
-            total_limit = org['node_limit'] + org['extra_slots']
-            
-            # ROOT users are never limited
-            if current_user.get('role') == 'ROOT':
-                return False, current_count, total_limit
-                
-            return current_count >= total_limit, current_count, total_limit
-        finally:
-            cur.close()
-            conn.close()
 
 @app.route('/api/billing/buy-slot', methods=['POST'])
 @token_required
