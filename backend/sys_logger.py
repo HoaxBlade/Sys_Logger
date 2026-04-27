@@ -1160,13 +1160,6 @@ def buy_slot(current_user):
         cur.execute("UPDATE organizations SET extra_slots = extra_slots + 1 WHERE org_id = %s", (org_id,))
         conn.commit()
         
-        # Log the transaction
-        cur.execute("""
-            INSERT INTO audit_logs (org_id, action, details) 
-            VALUES (%s, 'PURCHASE_SLOT', 'Purchased 1 extra node slot')
-        """, (org_id,))
-        conn.commit()
-        
         cur.close()
         conn.close()
         
