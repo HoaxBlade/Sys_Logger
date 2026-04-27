@@ -458,6 +458,11 @@ def download_installer_signed(signed_token):
 @token_required
 def generate_installer_link(current_user):
     """Generate a short-lived (24h) signed download link"""
+    data = request.get_json()
+    comp_id = data.get('comp_id')
+    if not comp_id:
+        return jsonify({'message': 'comp_id is required'}), 400
+        
     org_id = current_user.get('org_id')
     
     # Check Tier Limits
