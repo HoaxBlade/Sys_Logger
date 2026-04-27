@@ -39,6 +39,7 @@ interface PricingPlan {
 
 import { useAuth } from './components/AuthContext';
 import { useRouter } from 'next/navigation';
+import { apiFetch } from './components/hooks/apiUtils';
 
 // ----------------------------------------------------------------------
 
@@ -304,6 +305,26 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 : [...prev, orgName]
         );
     };
+
+    const handleBuySlot = async () => {
+        setPaymentLoading('extra_node')
+        try {
+            const resp = await apiFetch('/api/billing/buy-slot', {
+                method: 'POST'
+            })
+            if (resp.ok) {
+                alert('Slot purchased successfully! You can now add one more monitor.')
+                setIsUpgradeModalOpen(false)
+            } else {
+                const data = await resp.json()
+                alert(`Error: ${data.error || 'Failed to purchase slot'}`)
+            }
+        } catch (err) {
+            console.error('Failed to buy slot:', err)
+        } finally {
+            setPaymentLoading(null)
+        }
+    }
 
     // Auto-expand orgs when searching
     useEffect(() => {
@@ -1185,6 +1206,39 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                     </div>
                                                 );
                                             })}
+
+                                        {/* Single Slot Expansion Section */}
+                                        {(() => {
+                                            const nodePlan = plans.find(p => p.slug === 'extra_node');
+                                            if (!nodePlan) return null;
+                                            
+                                            return (
+                                                <div className="pt-4 border-t border-zinc-100 mt-4">
+                                                    <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+                                                        <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition-all pointer-events-none" />
+                                                        
+                                                        <div className="flex items-center justify-between relative z-10">
+                                                            <div>
+                                                                <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">Fleet Expansion</p>
+                                                                <h3 className="text-white font-black text-lg tracking-tight">Buy 1 Extra Node</h3>
+                                                                <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mt-1">One-time upgrade • ₹{nodePlan.price_monthly}</p>
+                                                            </div>
+                                                            <button
+                                                                onClick={handleBuySlot}
+                                                                disabled={!!paymentLoading}
+                                                                className="bg-orange-500 hover:bg-orange-400 text-white px-5 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 shadow-lg shadow-orange-500/20 transition-all active:scale-95 disabled:opacity-50"
+                                                            >
+                                                                {paymentLoading === 'extra_node' ? (
+                                                                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                                ) : (
+                                                                    <>Add Slot <Zap size={14} /></>
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                             </motion.div>

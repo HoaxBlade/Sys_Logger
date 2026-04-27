@@ -265,27 +265,23 @@ def download_installer(current_user):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # 1. Check Tier Limits - now including tier and contact_email to avoid KeyError
-        cur.execute("SELECT node_limit, tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
-        org = cur.fetchone()
-        if not org:
-            return jsonify({'message': 'Organization not found!'}), 404
-            
-        # Use ::text cast because org_id is VARCHAR in the systems table
-        cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
-        current_count = cur.fetchone()['count']
+        # 1. Check Tier Limits
+        is_reached, current_count, limit = UnitStore.check_org_limit(org_id, current_user)
         
-        if current_user.get('role') != 'ROOT':
-            # 1a. Per-Organization Limit
-            if current_count >= org['node_limit']:
-                return jsonify({
-                    'error': 'limit_reached',
-                    'current_count': current_count,
-                    'limit': org['node_limit'],
-                    'message': f"Organization limit reached! Your tier allows {org['node_limit']} nodes. Upgrade to add more monitors."
-                }), 403
+        if is_reached:
+            return jsonify({
+                'error': 'limit_reached',
+                'current_count': current_count,
+                'limit': limit,
+                'message': f"Organization limit reached! Your tier allows {limit} nodes. Upgrade to add more monitors."
+            }), 403
             
-            # 1b. Global Free Tier Check (Prevent multi-org free node loophole)
+        # 1b. Global Free Tier Check (Prevent multi-org free node loophole)
+        # Fetching org again for the specific loophole check (deprecated soon)
+        cur.execute("SELECT tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
+        org = cur.fetchone()
+
+        if current_user.get('role') != 'ROOT':
             if org['tier'].upper() == 'INDIVIDUAL' or org['tier'].upper() == 'FREE':
                 contact_email = org.get('contact_email') or current_user.get('email')
                 if contact_email:
@@ -462,14 +458,18 @@ def download_installer_signed(signed_token):
 @token_required
 def generate_installer_link(current_user):
     """Generate a short-lived (24h) signed download link"""
-    data = request.get_json()
-    comp_id = data.get('comp_id')
-    
-    if not comp_id:
-        return jsonify({'message': 'Component ID is required!'}), 400
-        
     org_id = current_user.get('org_id')
     
+    # Check Tier Limits
+    is_reached, current_count, limit = UnitStore.check_org_limit(org_id, current_user)
+    if is_reached:
+        return jsonify({
+            'error': 'limit_reached',
+            'current_count': current_count,
+            'limit': limit,
+            'message': f"Organization limit reached! Your tier allows {limit} nodes. Upgrade to add more monitors."
+        }), 403
+
     token = jwt.encode({
         'org_id': org_id,
         'comp_id': comp_id,
@@ -1110,6 +1110,66 @@ def get_orgs(current_user):
         cur.close()
         conn.close()
         return jsonify(orgs)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    @staticmethod
+    def check_org_limit(org_id, current_user):
+        """
+        Check if an organization has reached its node limit.
+        Returns (is_reached, current_count, limit)
+        """
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            # 1. Get Org Limits
+            cur.execute("SELECT node_limit, extra_slots, tier FROM organizations WHERE org_id = %s", (org_id,))
+            org = cur.fetchone()
+            if not org:
+                return False, 0, 0
+                
+            # 2. Get Current System Count
+            cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
+            current_count = cur.fetchone()['count']
+            
+            total_limit = org['node_limit'] + org['extra_slots']
+            
+            # ROOT users are never limited
+            if current_user.get('role') == 'ROOT':
+                return False, current_count, total_limit
+                
+            return current_count >= total_limit, current_count, total_limit
+        finally:
+            cur.close()
+            conn.close()
+
+@app.route('/api/billing/buy-slot', methods=['POST'])
+@token_required
+def buy_slot(current_user):
+    """Simulated purchase of an extra node slot"""
+    org_id = current_user.get('org_id')
+    if not org_id:
+        return jsonify({'error': 'Organization not found'}), 404
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Increment extra_slots
+        cur.execute("UPDATE organizations SET extra_slots = extra_slots + 1 WHERE org_id = %s", (org_id,))
+        conn.commit()
+        
+        # Log the transaction
+        cur.execute("""
+            INSERT INTO audit_logs (org_id, action, details) 
+            VALUES (%s, 'PURCHASE_SLOT', 'Purchased 1 extra node slot')
+        """, (org_id,))
+        conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Slot purchased successfully!'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
