@@ -38,7 +38,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Listen for global unauthorized events (session expiry)
         const handleUnauthorized = () => {
-            logout();
+            // Only trigger logout if we actually have a session to clear
+            // This prevents "double-logout" loops from ghost background processes
+            const currentToken = localStorage.getItem('token');
+            if (currentToken) {
+                logout();
+            }
         };
 
         window.addEventListener('app-unauthorized', handleUnauthorized);
@@ -56,6 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const logout = () => {
+        // Only proceed if there is something to clear
+        if (!token && !localStorage.getItem('token')) return;
+
         setToken(null);
         setUser(null);
         localStorage.removeItem('token');

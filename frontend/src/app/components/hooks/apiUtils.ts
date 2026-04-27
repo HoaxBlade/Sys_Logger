@@ -12,6 +12,16 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const cacheBuster = `cb=${Date.now()}`
     const separator = endpoint.includes('?') ? '&' : '?'
     
+    // Safety check: Avoid calling protected endpoints without a token
+    // This saves bandwidth and prevents unnecessary 401s from reaching the event listener
+    const protectedEndpoints = ['/api/units', '/api/usage', '/api/alerts', '/api/orgs'];
+    const isProtected = protectedEndpoints.some(p => endpoint.startsWith(p));
+    
+    if (isProtected && !token) {
+        console.warn(`Blocking protected fetch to ${endpoint} - No token found.`);
+        return new Response(JSON.stringify({ error: 'Local unauthorized guard: No token available' }), { status: 401 });
+    }
+
     const response = await fetch(`${baseUrl}${endpoint}${separator}${cacheBuster}`, {
         mode: 'cors',
         cache: 'no-store', // Disable browser caching
@@ -26,7 +36,8 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
         },
     })
 
-    if (response.status === 401) {
+    if (response.status === 401 && token) {
+        // Only dispatch unauthorized event if we thought we had a valid token
         window.dispatchEvent(new CustomEvent('app-unauthorized'));
     }
 

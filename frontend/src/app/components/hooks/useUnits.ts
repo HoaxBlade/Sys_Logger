@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Unit, Alert } from '../types'
 import { apiFetch } from './apiUtils'
+import { useAuth } from '../AuthContext'
 
 export const useUnits = (orgId?: string) => {
+  const { user, token } = useAuth()
   const [units, setUnits] = useState<Unit[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
@@ -11,6 +13,7 @@ export const useUnits = (orgId?: string) => {
   const wsRef = useRef<WebSocket | null>(null)
 
   const fetchUnits = useCallback(async () => {
+    if (!token) return; // Guard: No token, no poll
     try {
       const endpoint = orgId ? `/api/orgs/${orgId}/units` : '/api/units'
       const response = await apiFetch(endpoint)
@@ -25,9 +28,10 @@ export const useUnits = (orgId?: string) => {
       setUnits([]) // Clear stale data on error
       setAlerts([])
     }
-  }, [])
+  }, [orgId, user, token])
 
   const fetchAlerts = useCallback(async () => {
+    if (!token) return; // Guard: No token, no poll
     try {
       const response = await apiFetch('/api/alerts')
       if (!response.ok) {
@@ -38,32 +42,30 @@ export const useUnits = (orgId?: string) => {
     } catch (err) {
       console.error('Failed to fetch alerts:', err)
     }
-  }, [])
-
-  const connectWebSocket = useCallback(() => {
-    // HTTP polling instead of WebSocket for reliability
-    // This ensures we always get fresh data from the backend
-    setTimeout(() => {
-      fetchUnits()
-      fetchAlerts()
-      connectWebSocket()
-    }, 1000) // Update every 1 second
-  }, [fetchUnits, fetchAlerts])
+  }, [token])
 
   useEffect(() => {
+    if (!token) return;
+
     const initFetch = async () => {
       await Promise.all([fetchUnits(), fetchAlerts()])
       setLoading(false)
     }
+    
     initFetch()
-    connectWebSocket()
+    
+    const interval = setInterval(() => {
+      fetchUnits()
+      fetchAlerts()
+    }, 1000) // Poll every 1 second
 
     return () => {
+      clearInterval(interval)
       if (wsRef.current) {
         wsRef.current.close()
       }
     }
-  }, [fetchUnits, fetchAlerts, connectWebSocket])
+  }, [fetchUnits, fetchAlerts, token])
 
   const acknowledgeAlert = useCallback(async (alertId: string) => {
     try {
