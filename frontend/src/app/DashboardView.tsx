@@ -307,24 +307,54 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     };
 
     const handleBuySlot = async () => {
-        setPaymentLoading('extra_node')
+        setPaymentLoading('extra_node');
         try {
-            const resp = await apiFetch('/api/billing/buy-slot', {
-                method: 'POST'
-            })
-            if (resp.ok) {
-                alert('Slot purchased successfully! You can now add one more monitor.')
-                setIsUpgradeModalOpen(false)
-            } else {
-                const data = await resp.json()
-                alert(`Error: ${data.error || 'Failed to purchase slot'}`)
-            }
-        } catch (err) {
-            console.error('Failed to buy slot:', err)
+            const orderResp = await fetch('/api/payments/create-slot-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ quantity: 1 })
+            });
+            const orderData = await orderResp.json();
+            if (!orderResp.ok) throw new Error(orderData.error || 'Failed to create order');
+
+            const options = {
+                key: orderData.key_id,
+                amount: orderData.amount,
+                currency: orderData.currency,
+                name: "SysLogger Fleet Expansion",
+                description: orderData.description,
+                order_id: orderData.order_id,
+                handler: async (response: any) => {
+                    const verifyResp = await fetch('/api/payments/verify-slot-payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature
+                        })
+                    });
+                    const verifyData = await verifyResp.json();
+                    if (verifyResp.ok) {
+                        setIsUpgradeModalOpen(false);
+                        alert(`✅ ${verifyData.message}`);
+                        // Refresh units to get updated limits
+                        apiUnits.refetchUnits();
+                    } else {
+                        alert('Payment verification failed: ' + verifyData.error);
+                    }
+                },
+                prefill: orderData.prefill,
+                theme: { color: '#f97316' }
+            };
+            const rzp = new (window as any).Razorpay(options);
+            rzp.open();
+        } catch (err: any) {
+            alert(err.message || 'Payment failed to initiate');
         } finally {
-            setPaymentLoading(null)
+            setPaymentLoading(null);
         }
-    }
+    };
 
     // Auto-expand orgs when searching
     useEffect(() => {
@@ -614,6 +644,13 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const lastData = usageData.length > 0 ? usageData[usageData.length - 1] : null
     const activeUnits = units.filter(u => u.status === 'online').length
     const totalUnits = units.length
+    const isLimitReached = useMemo(() => {
+        if (user?.role === 'ROOT') return false;
+        const limit = (user?.node_limit || 0) + (user?.extra_slots || 0);
+        // If we don't have limit info yet, don't block
+        if (!user?.node_limit && !user?.extra_slots) return false;
+        return totalUnits >= limit;
+    }, [user, totalUnits]);
 
     // Data for the Mini-Cards
     const currentMetrics = useMemo(() => [
@@ -1076,6 +1113,16 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         </p>
                                     </div>
 
+                                    {isLimitReached && (
+                                        <div className="flex items-center gap-3 bg-red-50 text-red-600 p-5 rounded-2xl text-[11px] font-black ring-1 ring-red-100">
+                                            <AlertTriangle className="w-5 h-5 shrink-0" />
+                                            <div className="flex flex-col gap-0.5">
+                                                <span>NODE LIMIT REACHED</span>
+                                                <span className="opacity-70 font-bold">You have used all { (user?.node_limit || 0) + (user?.extra_slots || 0) } available slots.</span>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {generatedLink ? (
                                         <div className="flex flex-col gap-3">
                                             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col gap-2">
@@ -1103,8 +1150,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <button
                                                 onClick={handleAddNode}
-                                                disabled={isDownloading}
-                                                className="flex-1 bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-50 group shadow-lg"
+                                                disabled={isDownloading || isLimitReached}
+                                                className="flex-1 bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed group shadow-lg"
                                             >
                                                 {isDownloading ? (
                                                     <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -1117,8 +1164,8 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </button>
                                             <button
                                                 onClick={() => handleGenerateLink(newNodeName)}
-                                                disabled={isDownloading}
-                                                className="flex-1 bg-white text-zinc-700 ring-1 ring-zinc-200 rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:ring-zinc-300 hover:bg-zinc-50 transition-all disabled:opacity-50 group"
+                                                disabled={isDownloading || isLimitReached}
+                                                className="flex-1 bg-white text-zinc-700 ring-1 ring-zinc-200 rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:ring-zinc-300 hover:bg-zinc-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed group"
                                             >
                                                 {isDownloading ? (
                                                     <div className="w-4 h-4 border-2 border-zinc-200 border-t-zinc-700 rounded-full animate-spin" />

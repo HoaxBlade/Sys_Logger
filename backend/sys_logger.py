@@ -64,6 +64,7 @@ razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 # Public URL for the agent to connect back to (useful for hosting/proxies)
 # Defaults to request host during registration/installer generation
 PUBLIC_SERVER_URL = os.getenv('PUBLIC_SERVER_URL', '')
+CREATOR_EMAIL = os.getenv('CREATOR_EMAIL', 'ayush@syslogger.com')
 
 # DB Config
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -233,11 +234,16 @@ def register():
         )
         org_id = cur.fetchone()['org_id']
         
-        # 3. Create User
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         cur.execute(
-            "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING user_id",
             (username, email, password_hash, 'ADMIN', org_id)
+        )
+        user_id = cur.fetchone()['user_id']
+        
+        # 4. Create Membership (New Multi-tenant Architecture)
+        cur.execute(
+            "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+            (user_id, org_id, 'ADMIN', True)
         )
         
         conn.commit()
@@ -265,16 +271,30 @@ def download_installer(current_user):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # 1. Check Tier Limits
-        is_reached, current_count, limit = UnitStore.check_org_limit(org_id, current_user)
+        # 1. Check Tier Limits - now including extra_slots for Pay-as-you-grow feature
+        cur.execute("SELECT node_limit, extra_slots, tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
+        org = cur.fetchone()
+        if not org:
+            return jsonify({'message': 'Organization not found!'}), 404
+            
+        # Use ::text because org_id is VARCHAR in the systems table
+        cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
+        current_count = cur.fetchone()['count']
         
-        if is_reached:
-            return jsonify({
-                'error': 'limit_reached',
-                'current_count': current_count,
-                'limit': limit,
-                'message': f"Organization limit reached! Your tier allows {limit} nodes. Upgrade to add more monitors."
-            }), 403
+        # Calculate TOTAL dynamic limit
+        base_limit = org['node_limit'] or 1
+        extra_slots = org.get('extra_slots') or 0
+        total_limit = base_limit + extra_slots
+        
+        if current_user.get('role') != 'ROOT':
+            # 1a. Per-Organization Limit Check
+            if current_count >= total_limit:
+                return jsonify({
+                    'error': 'limit_reached',
+                    'current_count': current_count,
+                    'limit': total_limit,
+                    'message': f"Organization limit reached! Your tier allows {total_limit} nodes. Upgrade to add more monitors."
+                }), 403
             
         # 1b. Global Free Tier Check (Prevent multi-org free node loophole)
         # Fetching org again for the specific loophole check (deprecated soon)
@@ -497,44 +517,138 @@ def login():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-        SELECT u.*, o.tier 
-        FROM users u 
-        JOIN organizations o ON u.org_id = o.org_id 
-        WHERE u.email = %s
+        SELECT * FROM users WHERE email = %s
     """, (auth.get('email', '').lower(),))
     user = cur.fetchone()
+    
+    if not user or not bcrypt.checkpw(auth.get('password').encode('utf-8'), user['password_hash'].encode('utf-8')):
+        cur.close()
+        conn.close()
+        return make_response('Could not verify', 401)
+        
+    # THE CREATOR RULE: Hard-code ROOT status for the project creator
+    if user['email'].lower() == CREATOR_EMAIL.lower():
+        user['role'] = 'ROOT'
+        
+    # 2. Fetch all memberships (Workspaces)
+    cur.execute("""
+        SELECT m.org_id, m.role, o.name, o.slug, o.tier, m.is_default, o.node_limit, o.extra_slots
+        FROM memberships m
+        JOIN organizations o ON m.org_id = o.org_id
+        WHERE m.user_id = %s
+    """, (user['user_id'],))
+    
+    workspaces = cur.fetchall()
     cur.close()
     conn.close()
     
-    if not user:
-        return make_response('Could not verify', 401)
+    if not workspaces:
+        # Fallback if no membership exists (shouldn't happen with migration)
+        # But for new users we'll need a flow. For now, block.
+        return jsonify({'error': 'User has no organization memberships'}), 403
         
-    if bcrypt.checkpw(auth.get('password').encode('utf-8'), user['password_hash'].encode('utf-8')):
-        token = jwt.encode({
+    # 3. Determine active workspace (default or first)
+    active_ws = next((w for w in workspaces if w['is_default']), workspaces[0])
+    
+    # Force 'ROOT' role if creator
+    role = 'ROOT' if user['email'].lower() == CREATOR_EMAIL.lower() else active_ws['role']
+    
+    token = jwt.encode({
+        'user_id': user['user_id'],
+        'email': user['email'],
+        'role': role,
+        'org_id': active_ws['org_id'],
+        'tier': active_ws['tier'],
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+    
+    return jsonify({
+        'token': token,
+        'user': {
             'user_id': user['user_id'],
             'email': user['email'],
-            'role': user['role'],
-            'org_id': user['org_id'],
-            'tier': user['tier'],
-            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-        }, app.config['SECRET_KEY'], algorithm="HS256")
+            'role': role,
+            'org_id': active_ws['org_id'],
+            'tier': active_ws['tier'],
+            'node_limit': active_ws.get('node_limit', 0),
+            'extra_slots': active_ws.get('extra_slots', 0)
+        },
+        'workspaces': workspaces
+    })
+
+
+@app.route('/api/auth/switch-org', methods=['POST'])
+@token_required
+def switch_org(current_user):
+    data = request.get_json()
+    new_org_id = data.get('org_id')
+    
+    if not new_org_id:
+        return jsonify({'error': 'Organization ID is required'}), 400
         
-        return jsonify({
-            'token': token,
-            'user': {
-                'email': user['email'],
-                'role': user['role'],
-                'org_id': user['org_id'],
-                'tier': user['tier']
-            }
-        })
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    cur.execute("""
+        SELECT m.org_id, m.role, o.name, o.slug, o.tier, o.node_limit, o.extra_slots
+        FROM memberships m
+        JOIN organizations o ON m.org_id = o.org_id
+        WHERE m.user_id = %s AND m.org_id = %s
+    """, (current_user['user_id'], new_org_id))
+    
+    membership = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not membership:
+        return jsonify({'error': 'You do not have access to this organization'}), 403
         
-    return make_response('Could not verify', 401)
+    # Issue a NEW token for the new organization context
+    token = jwt.encode({
+        'user_id': current_user['user_id'],
+        'email': current_user['email'],
+        'role': membership['role'],
+        'org_id': new_org_id,
+        'tier': membership['tier'],
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+    
+    return jsonify({
+        'token': token,
+        'org_id': new_org_id,
+        'org_name': membership['name'],
+        'role': membership['role'],
+        'tier': membership['tier']
+    })
 
 @app.route('/api/auth/me', methods=['GET'])
 @token_required
 def get_me(current_user):
-    return jsonify(current_user)
+    """Fetch fresh user/org data from DB to reflect latest limits"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # 1. Fetch Latest Org Data
+        cur.execute("""
+            SELECT o.node_limit, o.extra_slots, o.tier, o.name as org_name, m.role
+            FROM memberships m
+            JOIN organizations o ON m.org_id = o.org_id
+            WHERE m.user_id = %s AND m.org_id = %s
+        """, (current_user['user_id'], current_user['org_id']))
+        
+        fresh_data = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if fresh_data:
+            # Merge fresh data into current_user info
+            current_user.update(fresh_data)
+            
+        return jsonify(current_user)
+    except Exception as e:
+        print(f"Error in /api/auth/me: {e}")
+        return jsonify(current_user) # Fallback to token data
 
 @app.route('/api/users', methods=['GET'])
 @token_required
@@ -614,6 +728,13 @@ def create_user(current_user):
             (username, email, password_hash, role, org_id)
         )
         new_user = cur.fetchone()
+        
+        # Create Membership Record
+        cur.execute(
+            "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+            (new_user['user_id'], org_id, role, True)
+        )
+
         conn.commit()
         cur.close()
         conn.close()
@@ -1149,28 +1270,127 @@ def get_orgs(current_user):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/billing/buy-slot', methods=['POST'])
+# --- INDIVIDUAL NODE SLOT PAYMENT APIS (₹30 per Slot) ---
+
+@app.route('/api/payments/create-slot-order', methods=['POST'])
 @token_required
-def buy_slot(current_user):
-    """Simulated purchase of an extra node slot"""
-    org_id = current_user.get('org_id')
-    if not org_id:
-        return jsonify({'error': 'Organization not found'}), 404
+def create_slot_order(current_user):
+    """Create a ₹30 Razorpay order for an individual node slot"""
+    data = request.get_json()
+    quantity = int(data.get('quantity', 1))
+    
+    if quantity < 1:
+        return jsonify({'error': 'Minimum quantity is 1'}), 400
         
+    price_per_slot = 30  # Indian Rupees
+    total_amount = quantity * price_per_slot
+    
+    order_data = {
+        'amount': total_amount * 100,  # Razorpay expects paise
+        'currency': 'INR',
+        'receipt': f"slot_rcpt_{uuid.uuid4().hex[:10]}",
+        'notes': {
+            'org_id': current_user['org_id'],
+            'type': 'node_slot_addon',
+            'quantity': quantity
+        }
+    }
+    
     try:
+        order = razorpay_client.order.create(data=order_data)
+        
         conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Increment extra_slots
-        cur.execute("UPDATE organizations SET extra_slots = extra_slots + 1 WHERE org_id = %s", (org_id,))
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO transactions (org_id, plan_id, amount, razorpay_order_id, status)
+            VALUES (%s, NULL, %s, %s, 'created')
+        """, (current_user['org_id'], total_amount, order['id']))
         conn.commit()
-        
         cur.close()
         conn.close()
         
-        return jsonify({'message': 'Slot purchased successfully!'})
+        return jsonify({
+            'order_id': order['id'],
+            'amount': total_amount,
+            'currency': 'INR',
+            'key_id': RAZORPAY_KEY_ID,
+            'name': 'SysLogger Fleet Expansion',
+            'description': f"Purchase {quantity} extra node slot(s)",
+            'prefill': {
+                'email': current_user['email']
+            }
+        })
     except Exception as e:
+        print(f"Razorpay Order Error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/payments/verify-slot-payment', methods=['POST'])
+@token_required
+def verify_slot_payment(current_user):
+    """Verify payment and increment organization extra_slots"""
+    data = request.get_json()
+    razorpay_order_id = data.get('razorpay_order_id')
+    razorpay_payment_id = data.get('razorpay_payment_id')
+    razorpay_signature = data.get('razorpay_signature')
+    
+    if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+        return jsonify({'error': 'Invalid payment data'}), 400
+        
+    params_dict = {
+        'razorpay_order_id': razorpay_order_id,
+        'razorpay_payment_id': razorpay_payment_id,
+        'razorpay_signature': razorpay_signature
+    }
+    
+    try:
+        # 1. Verify Signature
+        razorpay_client.utility.verify_payment_signature(params_dict)
+        
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # 2. Update transaction status
+        cur.execute("""
+            UPDATE transactions 
+            SET razorpay_payment_id = %s, status = 'success' 
+            WHERE razorpay_order_id = %s 
+            RETURNING amount
+        """, (razorpay_payment_id, razorpay_order_id))
+        
+        txn = cur.fetchone()
+        if not txn:
+            conn.rollback()
+            return jsonify({'error': 'Transaction record not found'}), 404
+            
+        # 3. Calculate quantity and update organization slots
+        # We assume ₹30 per slot based on the amount paid
+        paid_amount = float(txn['amount'])
+        quantity = int(paid_amount / 30)
+        
+        if quantity < 1:
+            conn.rollback()
+            return jsonify({'error': 'Invalid amount for slot conversion'}), 400
+            
+        cur.execute("""
+            UPDATE organizations 
+            SET extra_slots = COALESCE(extra_slots, 0) + %s 
+            WHERE org_id = %s
+        """, (quantity, current_user['org_id']))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'new_slots_added': quantity,
+            'message': f'Payment verified! {quantity} node slot(s) added to your fleet.'
+        })
+        
+    except Exception as e:
+        print(f"Payment Verification Failed: {e}")
+        return jsonify({'error': 'Payment verification failed', 'details': str(e)}), 400
+
 
 @app.route('/api/pricing', methods=['GET'])
 def get_pricing():
@@ -1432,8 +1652,15 @@ def create_org(current_user):
                 
             password_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             cur.execute(
-                "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING user_id",
                 (admin_username, admin_email, password_hash, 'ADMIN', org_db_id)
+            )
+            admin_user_id = cur.fetchone()['user_id']
+            
+            # Create Membership for Admin
+            cur.execute(
+                "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+                (admin_user_id, org_db_id, 'ADMIN', True)
             )
 
         conn.commit()

@@ -8,6 +8,8 @@ interface User {
     role: string;
     org_id: string;
     tier?: string;
+    node_limit?: number;
+    extra_slots?: number;
 }
 
 interface AuthContextType {
