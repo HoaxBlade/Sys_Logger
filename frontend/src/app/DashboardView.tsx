@@ -652,6 +652,15 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
         return totalUnits >= limit;
     }, [user, totalUnits]);
 
+    const groupedUnits = useMemo(() => {
+        return sortedUnits.reduce((acc, unit) => {
+            const org = unit.org_name || 'Global';
+            if (!acc[org]) acc[org] = [];
+            acc[org].push(unit);
+            return acc;
+        }, {} as Record<string, Unit[]>);
+    }, [sortedUnits]);
+
     // Data for the Mini-Cards
     const currentMetrics = useMemo(() => [
         { id: 'cpu', title: 'Processing', label: 'CPU Load', value: (lastData?.cpu ?? lastData?.cpu_usage ?? 0).toFixed(1), unit: '%', icon: <Cpu className="w-5 h-5" />, color: 'orange', info: 'Shows how hard the processor is working. High usage may slow down the system.' },
@@ -921,14 +930,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">No Systems Found</p>
                             </div>
                         ) : (
-                            Object.entries(
-                                sortedUnits.reduce((acc, unit) => {
-                                    const org = unit.org_name || 'Global';
-                                    if (!acc[org]) acc[org] = [];
-                                    acc[org].push(unit);
-                                    return acc;
-                                }, {} as Record<string, Unit[]>)
-                            ).map(([org, orgUnits]) => (
+                            Object.entries(groupedUnits).map(([org, orgUnits]) => (
                                 <div key={org} className="space-y-3">
                                     <button 
                                         onClick={() => toggleOrgCollapse(org)}
@@ -1765,13 +1767,28 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </button>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-5 pb-8">
-                                            {sortedUnits.map((unit) => (
-                                                <CompactStatCard
-                                                    key={unit.id}
-                                                    unit={unit}
-                                                    onClick={() => handleUnitToggle(unit)}
-                                                />
+                                        <div className="flex flex-col gap-10 pb-12">
+                                            {Object.entries(groupedUnits).map(([orgName, orgUnits]) => (
+                                                <div key={orgName} className="space-y-6">
+                                                    <div className="flex items-center gap-4 px-1">
+                                                        <div className="h-px flex-1 bg-zinc-200/60" />
+                                                        <h3 className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.4em] flex items-center gap-3 shrink-0">
+                                                            <div className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)]" />
+                                                            {orgName}
+                                                            <span className="text-zinc-300 font-bold tracking-tight">({orgUnits.length})</span>
+                                                        </h3>
+                                                        <div className="h-px flex-1 bg-zinc-200/60" />
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-5">
+                                                        {orgUnits.map((unit) => (
+                                                            <CompactStatCard
+                                                                key={unit.id}
+                                                                unit={unit}
+                                                                onClick={() => handleUnitToggle(unit)}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             ))}
                                         </div>
                                     )}
