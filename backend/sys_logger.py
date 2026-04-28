@@ -1007,9 +1007,22 @@ class UnitStore:
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            # Delete metrics first due to FK
-            cur.execute("DELETE FROM system_metrics WHERE system_id = %s OR system_id IN (SELECT system_id FROM systems WHERE system_name = %s)", (unit_id, unit_id))
-            cur.execute("DELETE FROM systems WHERE system_id = %s OR system_name = %s", (unit_id, unit_id))
+            
+            # 1. Resolve actual system_id first to avoid ambiguity
+            cur.execute("SELECT system_id FROM systems WHERE system_id = %s OR system_name = %s", (unit_id, unit_id))
+            row = cur.fetchone()
+            if not row:
+                return
+                
+            actual_id = row[0]
+            
+            # 2. Delete all dependent metrics (raw and aggregated)
+            cur.execute("DELETE FROM system_metrics WHERE system_id = %s", (actual_id,))
+            cur.execute("DELETE FROM aggregated_metrics WHERE system_id = %s", (actual_id,))
+            
+            # 3. Finally delete the system itself
+            cur.execute("DELETE FROM systems WHERE system_id = %s", (actual_id,))
+            
             conn.commit()
             cur.close()
             conn.close()
