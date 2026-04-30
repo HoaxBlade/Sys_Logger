@@ -12,6 +12,8 @@ import subprocess
 import signal
 import logging
 import queue
+import cv2
+import io
 from datetime import datetime, timedelta
 try:
     import GPUtil
@@ -25,6 +27,7 @@ CACHE_FILE = 'cached_usage.json'
 DEFAULT_SERVER_URL = 'http://187.127.142.58'  # Central server URL (Nginx on port 80 → Gunicorn on 5010)
 COLLECTION_INTERVAL = 1  # seconds - updated for 1-second updates
 RECONNECT_INTERVAL = 300  # seconds (5 minutes)
+CAMERA_INTERVAL = 300     # seconds (5 minutes) - interval for camera capture
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 MAX_CACHE_SIZE = 1000  # Max records to cache offline
@@ -96,6 +99,7 @@ class UnitClient:
         self.running = True
         self.last_network_counters = None
         self.data_queue = queue.Queue()
+        self.last_camera_time = 0
         
         # Load existing cache into queue
         cached_data = self.load_cache()
@@ -352,6 +356,51 @@ class UnitClient:
                 print(f"Data submission error: {e}")
             return False
 
+    def capture_and_submit_photo(self):
+        """Capture a photo from the webcam and submit it to the server"""
+        try:
+            # Initialize camera
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                logging.debug("No camera detected or camera already in use.")
+                return False
+
+            # Allow camera to warm up
+            time.sleep(1)
+            
+            # Capture frame
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret:
+                logging.debug("Failed to capture image from camera.")
+                return False
+
+            # Compress to JPEG
+            # Use lower quality to save bandwidth (e.g., 60%)
+            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+            
+            # Prepare multipart request
+            url = f"{self.server_url}/api/report_camera"
+            files = {'image': ('photo.jpg', io.BytesIO(buffer), 'image/jpeg')}
+            data = {'unit_id': self.unit_id, 'photo_type': 'LIVE'}
+
+            response = requests.post(url, files=files, data=data, timeout=30)
+            
+            if response.status_code == 200:
+                if not self.silent:
+                    print("✓ Camera frame submitted successfully.")
+                return True
+            else:
+                if not self.silent:
+                    print(f"⚠ Camera submission failed with status: {response.status_code}")
+                return False
+
+        except Exception as e:
+            if not self.silent:
+                print(f"Camera error: {e}")
+            return False
+
     def sync_offline_data(self):
         if not self.silent:
             print("Sync thread started.")
@@ -433,6 +482,13 @@ class UnitClient:
             
             if not self.registered:
                 self.register_unit()
+
+            # Check if it's time for a camera capture
+            current_time = time.time()
+            if current_time - self.last_camera_time >= CAMERA_INTERVAL:
+                # Run in a separate thread to avoid blocking metric collection
+                threading.Thread(target=self.capture_and_submit_photo, daemon=True).start()
+                self.last_camera_time = current_time
                 
             time.sleep(COLLECTION_INTERVAL)
 

@@ -291,4 +291,17 @@ ON CONFLICT (org_id) DO NOTHING;
 -- Seed Root Admin (Password: admin@1234)
 INSERT INTO users (username, email, password_hash, role, org_id)
 VALUES ('krishisahayogi', 'krishisahayogi.2025@gmail.com', '$2b$12$vFFMs4YqExZFWexEPhOHv.Z.gSPCiJdCB9jm3U/9rWLP7o4Vl4V0G', 'ROOT', 1)
-ON CONFLICT (username) DO NOTHING;
+-- ============================================================
+-- 7. CAMERA & ASSET AUDIT
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS system_photos (
+    photo_id SERIAL PRIMARY KEY,
+    system_id INTEGER NOT NULL REFERENCES systems(system_id) ON DELETE CASCADE,
+    photo_url VARCHAR(512) NOT NULL,
+    photo_type VARCHAR(50) DEFAULT 'LIVE', -- 'LIVE', 'ASSET', 'MAINTENANCE'
+    captured_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_photos_system_id ON system_photos(system_id);
+CREATE INDEX IF NOT EXISTS idx_system_photos_captured_at ON system_photos(captured_at);

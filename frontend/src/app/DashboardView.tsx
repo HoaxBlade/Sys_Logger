@@ -15,8 +15,9 @@ import {
     Monitor, Server, Database, Globe,
     ChevronRight, ChevronDown, Download, Cpu, HardDrive,
     Wifi, Zap, Clock, AlertTriangle,
-    Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut
+    Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut, Camera
 } from 'lucide-react'
+import { CameraGallery } from './components/CameraGallery';
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -273,7 +274,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const loading = apiUnits.loading
     const selectedUnitId = apiUsage.selectedUnitId
 
-    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management'>('metrics')
+    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management' | 'camera'>('metrics')
     const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'gpu' | 'ram' | 'network_rx'>('cpu')
 
 
@@ -1521,6 +1522,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                             <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
+                                            <button 
+                                                onClick={() => setActiveTab(activeTab === 'camera' ? 'metrics' : 'camera')} 
+                                                className={cn(
+                                                    "p-3 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20",
+                                                    activeTab === 'camera' ? "bg-orange-500 text-white shadow-orange-500/20" : "bg-white hover:bg-orange-50 hover:text-orange-600 text-zinc-400"
+                                                )} 
+                                                title="Physical Audit Logs"
+                                            >
+                                                <Camera className="w-4 h-4" />
+                                            </button>
+                                            <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
                                             <button onClick={() => window.print()} className="p-3 bg-white hover:bg-zinc-900 hover:text-white text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20" title="Official Print">
                                                 <Activity className="w-4 h-4" />
                                             </button>
@@ -1700,6 +1712,10 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                 <UsageGraph data={usageData} metric={selectedMetric} className="h-full" />
                                             </div>
                                         </div>
+                                    </div>
+                                ) : activeTab === 'camera' ? (
+                                    <div className="flex-1 min-h-0 pb-6">
+                                        <CameraGallery unitId={selectedUnit.id} unitName={selectedUnit.name.split('/').pop() || ''} />
                                     </div>
                                 ) : (
                                     /* <div className="bg-[#09090B] rounded-2xl lg:rounded-3xl shadow-xl border border-zinc-800 h-full min-h-[400px] lg:min-h-[500px] flex flex-col overflow-hidden">

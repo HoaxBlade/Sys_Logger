@@ -29,6 +29,7 @@ from flask import Flask, jsonify, request, make_response, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 from werkzeug.serving import make_server
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import jwt
 from functools import wraps
@@ -100,6 +101,13 @@ if cors_origins_env == '*':
 else:
     allowed_origins = [o.strip() for o in cors_origins_env.split(',') if o.strip()]
     CORS(app, origins=allowed_origins, supports_credentials=True)
+
+# Camera Storage Config
+PHOTO_UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'photos')
+if not os.path.exists(PHOTO_UPLOAD_FOLDER):
+    os.makedirs(PHOTO_UPLOAD_FOLDER)
+
+app.config['PHOTO_UPLOAD_FOLDER'] = PHOTO_UPLOAD_FOLDER
 
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'sys-logger-super-secret-key-32-chars-long-for-jwt')
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -2214,6 +2222,110 @@ def report_usage():
 
     except Exception as e:
         print(f"Error reporting usage: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/report_camera', methods=['POST'])
+def report_camera():
+    """Endpoint for units to upload camera frames"""
+    try:
+        # We expect a multipart form with 'image' and 'unit_id'
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image part'}), 400
+        
+        file = request.files['image']
+        unit_id = request.form.get('unit_id')
+        photo_type = request.form.get('photo_type', 'LIVE')
+
+        if not unit_id:
+            return jsonify({'error': 'unit_id is required'}), 400
+
+        # Verify unit exists
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT system_id, org_id FROM systems WHERE system_id = %s", (unit_id,))
+        system = cur.fetchone()
+        
+        if not system:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unit not registered'}), 404
+
+        system_id, org_id = system
+
+        # Save file
+        filename = secure_filename(f"{system_id}_{int(time.time())}.jpg")
+        # Organize by org_id for better management
+        org_folder = os.path.join(app.config['PHOTO_UPLOAD_FOLDER'], str(org_id))
+        if not os.path.exists(org_folder):
+            os.makedirs(org_folder)
+            
+        file_path = os.path.join(org_folder, filename)
+        file.save(file_path)
+
+        # Record in DB
+        # photo_url will be a relative path that we'll serve via a route
+        photo_url = f"/api/photos/{org_id}/{filename}"
+        cur.execute(
+            "INSERT INTO system_photos (system_id, photo_url, photo_type) VALUES (%s, %s, %s)",
+            (system_id, photo_url, photo_type)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({'status': 'photo received', 'url': photo_url}), 200
+
+    except Exception as e:
+        logging.error(f"Error in report_camera: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/photos/<org_id>/<filename>', methods=['GET'])
+@token_required
+def serve_photo(current_user, org_id, filename):
+    """Serve photos with access control"""
+    try:
+        # Access Control: ROOT can see everything, ORG_ADMIN can see their org
+        if current_user['role'] != 'ROOT' and str(current_user['org_id']) != str(org_id):
+            return jsonify({'error': 'Unauthorized access to this organization\'s photos'}), 403
+
+        return send_file(os.path.join(app.config['PHOTO_UPLOAD_FOLDER'], org_id, filename))
+    except Exception as e:
+        return jsonify({'error': 'Photo not found'}), 404
+
+@app.route('/api/units/<unit_id>/photos', methods=['GET'])
+@token_required
+def get_unit_photos(current_user, unit_id):
+    """Get photo history for a specific unit"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Access Control: Verify user has access to this unit's org
+        cur.execute("SELECT org_id FROM systems WHERE system_id = %s", (unit_id,))
+        system = cur.fetchone()
+        
+        if not system:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unit not found'}), 404
+            
+        if current_user['role'] != 'ROOT' and str(current_user['org_id']) != str(system['org_id']):
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unauthorized access'}), 403
+
+        # Get last 50 photos
+        cur.execute(
+            "SELECT photo_id, photo_url, photo_type, captured_at FROM system_photos WHERE system_id = %s ORDER BY captured_at DESC LIMIT 50",
+            (unit_id,)
+        )
+        photos = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        return jsonify(photos), 200
+
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/units/<unit_id>/export', methods=['GET'])
