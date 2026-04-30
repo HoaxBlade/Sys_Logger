@@ -53,7 +53,8 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
         fetchPhotos();
 
         // SocketIO Setup for Live Stream
-        const newSocket = io(window.location.origin, {
+        // Connecting directly to the backend IP to bypass dev-server proxy issues
+        const newSocket = io('http://187.127.142.58', {
             path: '/socket.io',
             transports: ['websocket']
         });

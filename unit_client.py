@@ -174,6 +174,14 @@ class UnitClient:
                 json.dump(self.cache[-MAX_CACHE_SIZE:], f)
         except: pass
 
+    def save_cache_from_queue(self):
+        """Save remaining queue to disk (approximate)"""
+        try:
+            items = list(self.data_queue.queue)
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(items[-MAX_CACHE_SIZE:], f)
+        except: pass
+
     def update_server_url(self, new_url):
         """Update server URL in config"""
         self.server_url = new_url
@@ -222,6 +230,11 @@ class UnitClient:
 
                 if not self.silent:
                     print(f"Unit registered successfully (Status: {response.status_code})")
+                
+                # Signal SocketIO that we are ready to receive commands for this Unit ID
+                if self.unit_id and self.sio.connected:
+                    self.sio.emit('unit_login', {'unit_id': self.unit_id})
+                    
                 return True
             else:
                 if not self.silent:
