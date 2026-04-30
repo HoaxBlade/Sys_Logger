@@ -478,7 +478,13 @@ class UnitClient:
         while self.running:
             try:
                 if not self.sio.connected:
-                    self.sio.connect(self.server_url)
+                    # Try connecting to port 5010 directly for SocketIO
+                    sio_url = self.server_url
+                    if ":5010" not in sio_url:
+                        # Strip trailing slash and add port
+                        sio_url = sio_url.rstrip('/') + ":5010"
+                    
+                    self.sio.connect(sio_url)
                 break
             except Exception as e:
                 time.sleep(5)

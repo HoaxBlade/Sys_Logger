@@ -70,7 +70,8 @@ echo ""
 echo "[Step 3/5] Installing dependencies..."
 
 source "$DEPLOY_DIR/venv/bin/activate"
-pip install -r "$DEPLOY_DIR/requirements.txt" --quiet
+echo "  (This may take a few minutes for large libraries like OpenCV...)"
+pip install -r "$DEPLOY_DIR/requirements.txt"
 echo "  ✅ Dependencies installed"
 
 # ==========================================

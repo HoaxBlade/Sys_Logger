@@ -101,7 +101,8 @@ Write-Host ""
 Write-Host "[Step 3/6] Installing dependencies..."
 
 $reqFile = Join-Path $deployDir "requirements.txt"
-& $venvPython -m pip install -r $reqFile --quiet
+Write-Host "  (This may take a few minutes for large libraries like OpenCV...)"
+& $venvPython -m pip install -r $reqFile
 Write-Host "  OK Dependencies installed"
 
 # ==========================================
