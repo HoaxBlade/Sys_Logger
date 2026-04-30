@@ -1,10 +1,11 @@
 module.exports = {
   apps: [
     {
-      name: "SysLoggerBackend",
-      script: "sys_logger.py",
-      cwd: "./",
-      interpreter: process.platform === 'win32' ? "./venv/Scripts/python.exe" : "./venv/bin/python3",
+      name: "sys-logger",
+      script: "/root/Sys_Logger/backend/venv/bin/gunicorn",
+      args: "--worker-class eventlet -w 1 --bind 0.0.0.0:5010 sys_logger:app",
+      cwd: "/root/Sys_Logger/backend",
+      interpreter: "none",
       instances: 1,
       autorestart: true,
       watch: false,
@@ -12,11 +13,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         PORT: "5010"
-      },
-      windowsHide: true,
-      error_file: "./backend_err.log",
-      out_file: "./backend_out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      }
     },
   ],
 };
