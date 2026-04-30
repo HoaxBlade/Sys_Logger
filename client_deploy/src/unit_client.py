@@ -478,15 +478,12 @@ class UnitClient:
         while self.running:
             try:
                 if not self.sio.connected:
-                    # Try connecting to port 5010 directly for SocketIO
-                    sio_url = self.server_url
-                    if ":5010" not in sio_url:
-                        # Strip trailing slash and add port
-                        sio_url = sio_url.rstrip('/') + ":5010"
-                    
-                    self.sio.connect(sio_url)
+                    # Strip any trailing slashes from server_url
+                    clean_url = self.server_url.rstrip('/')
+                    self.sio.connect(clean_url)
                 break
             except Exception as e:
+                print(f"DEBUG: SocketIO connection failed: {e}", flush=True)
                 time.sleep(5)
 
     def start_live_stream(self):
