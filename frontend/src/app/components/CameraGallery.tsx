@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Clock, X, ChevronLeft, ChevronRight, Maximize2, Loader2, User } from 'lucide-react';
+import { Camera, Clock, X, ChevronLeft, ChevronRight, Maximize2, Loader2, User, Play, Square } from 'lucide-react';
 import { apiFetch } from './hooks/apiUtils';
+import { io, Socket } from 'socket.io-client';
 
 interface Photo {
     photo_id: number;
@@ -22,6 +23,9 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
     const [loading, setLoading] = useState(true);
     const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [isLive, setIsLive] = useState(false);
+    const [liveFrame, setLiveFrame] = useState<string | null>(null);
+    const [socket, setSocket] = useState<Socket | null>(null);
 
     const fetchPhotos = async () => {
         setLoading(true);
@@ -47,7 +51,45 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
 
     useEffect(() => {
         fetchPhotos();
+
+        // SocketIO Setup for Live Stream
+        const newSocket = io(window.location.origin, {
+            path: '/socket.io',
+            transports: ['websocket']
+        });
+
+        newSocket.on('connect', () => {
+            console.log('Connected to stream socket');
+        });
+
+        newSocket.on('live_frame', (data: { unit_id: string, frame: string }) => {
+            if (data.unit_id === unitId) {
+                setLiveFrame(data.frame);
+            }
+        });
+
+        setSocket(newSocket);
+
+        return () => {
+            if (isLive) {
+                newSocket.emit('leave_stream', { unit_id: unitId });
+            }
+            newSocket.disconnect();
+        };
     }, [unitId]);
+
+    const toggleLive = () => {
+        if (!socket) return;
+
+        if (!isLive) {
+            socket.emit('join_stream', { unit_id: unitId });
+            setIsLive(true);
+        } else {
+            socket.emit('leave_stream', { unit_id: unitId });
+            setIsLive(false);
+            setLiveFrame(null);
+        }
+    };
 
     const formatTime = (dateStr: string) => {
         const date = new Date(dateStr);
@@ -71,17 +113,49 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
                         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">Visual confirmation of unit presence</p>
                     </div>
                 </div>
-                <button 
-                    onClick={fetchPhotos} 
-                    className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors"
-                    title="Refresh Gallery"
-                >
-                    <Clock size={16} className={loading ? "animate-spin" : ""} />
-                </button>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={toggleLive}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                            isLive 
+                            ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/20' 
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                    >
+                        {isLive ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
+                        {isLive ? 'Live View' : 'Go Live'}
+                    </button>
+                    <button 
+                        onClick={fetchPhotos} 
+                        className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 transition-colors"
+                        title="Refresh Gallery"
+                    >
+                        <Clock size={16} className={loading ? "animate-spin" : ""} />
+                    </button>
+                </div>
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto no-scrollbar min-h-[300px]">
-                {loading && photos.length === 0 ? (
+            <div className="flex-1 p-6 overflow-y-auto no-scrollbar min-h-[400px]">
+                {isLive ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-4 bg-zinc-950 rounded-[1.5rem] overflow-hidden relative group border border-white/5">
+                        {liveFrame ? (
+                            <img 
+                                src={liveFrame} 
+                                alt="Live Stream" 
+                                className="w-full h-full object-contain"
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center gap-3">
+                                <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+                                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Waking up remote camera...</p>
+                            </div>
+                        )}
+                        <div className="absolute top-4 left-4 px-3 py-1 bg-red-500 text-white text-[10px] font-black uppercase rounded-full flex items-center gap-2">
+                            <div className="w-2 h-2 bg-white rounded-full animate-ping" />
+                            Live
+                        </div>
+                    </div>
+                ) : loading && photos.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center gap-3 py-12">
                         <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
                         <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Accessing Camera Logs...</p>

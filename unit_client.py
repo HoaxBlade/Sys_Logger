@@ -14,6 +14,8 @@ import logging
 import queue
 import cv2
 import io
+import base64
+import socketio
 from datetime import datetime, timedelta
 try:
     import GPUtil
@@ -97,7 +99,13 @@ class UnitClient:
         self.unit_id = None
         self.registered = False
         self.running = True
+        self.is_streaming = False
+        self.stream_thread = None
         self.last_network_counters = None
+
+        # SocketIO Client for Live Control
+        self.sio = socketio.Client()
+        self.setup_sio_handlers()
         self.data_queue = queue.Queue()
         self.last_camera_time = 0
         
@@ -437,10 +445,9 @@ class UnitClient:
                 # Check registration before sending
                 if not self.registered:
                     if not self.register_unit():
-                         # If we can't register, wait and retry loop
                         time.sleep(RETRY_DELAY)
                         continue
-                        
+                
                 # Attempt Send
                 if self.submit_data(batch):
                     sent = True
@@ -450,22 +457,82 @@ class UnitClient:
                     # Mark all as done
                     for _ in batch:
                         self.data_queue.task_done()
-                        
-                    # Save cache (optional optimization: only save if queue is empty or periodically)
-                    if self.data_queue.qsize() == 0:
-                        self.save_cache_from_queue()
                 else:
                     if not self.silent:
                         print(f"⚠ Sync failed for batch of {len(batch)}. Retrying in {RETRY_DELAY}s...")
                     time.sleep(RETRY_DELAY)
 
-    def save_cache_from_queue(self):
-        """Save remaining queue to disk (approximate)"""
+    def setup_sio_handlers(self):
+        @self.sio.on('connect')
+        def on_connect():
+            if not self.silent:
+                print("✓ Connected to Live Control Server")
+            if self.unit_id:
+                self.sio.emit('unit_login', {'unit_id': self.unit_id})
+
+        @self.sio.on('start_stream')
+        def on_start_stream(data):
+            if not self.silent:
+                print(f"▶ Live stream requested by admin")
+            self.start_live_stream()
+
+        @self.sio.on('stop_stream')
+        def on_stop_stream(data):
+            if not self.silent:
+                print("⏹ Live stream stopped")
+            self.is_streaming = False
+
+    def start_live_stream(self):
+        if self.is_streaming:
+            return
+        self.is_streaming = True
+        self.stream_thread = threading.Thread(target=self.stream_frames_loop, daemon=True)
+        self.stream_thread.start()
+
+    def stream_frames_loop(self):
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            if not self.silent:
+                print("ERROR: Cannot open camera for live stream")
+            self.is_streaming = False
+            return
+
+        # Optimization: Lower resolution for streaming
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
         try:
-            items = list(self.data_queue.queue)
-            with open(CACHE_FILE, 'w') as f:
-                json.dump(items[-MAX_CACHE_SIZE:], f)
-        except: pass
+            while self.is_streaming and self.running:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Compress and Base64 encode
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                base64_frame = base64.b64encode(buffer).decode('utf-8')
+
+                self.sio.emit('video_frame', {
+                    'unit_id': self.unit_id,
+                    'frame': f"data:image/jpeg;base64,{base64_frame}"
+                })
+                
+                # ~10 FPS
+                time.sleep(0.1)
+        finally:
+            cap.release()
+            self.is_streaming = False
+
+    def connect_sio(self):
+        while self.running:
+            try:
+                if not self.sio.connected:
+                    self.sio.connect(self.server_url)
+                break
+            except Exception as e:
+                if not self.silent:
+                    print(f"SocketIO connection error: {e}. Retrying in 5s...")
+                time.sleep(5)
+
 
     def run(self):
         # Start sync thread

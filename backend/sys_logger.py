@@ -2759,6 +2759,36 @@ def handle_join_org(data):
         emit('units_update', UnitStore.get_units_by_org(org_id))
         emit('org_units_update', UnitStore.get_units_by_org(org_id))
 
+@socketio.on('join_stream')
+def handle_join_stream(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import join_room
+    join_room(f"stream_{unit_id}")
+    print(f"Admin {request.sid} joined stream room for unit {unit_id}")
+    # Signal the unit to start streaming
+    emit('start_stream', {'requester': request.sid}, room=f"unit_node_{unit_id}")
+
+@socketio.on('leave_stream')
+def handle_leave_stream(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import leave_room
+    leave_room(f"stream_{unit_id}")
+    # Signal unit to stop if no one else is watching (optional optimization)
+    emit('stop_stream', {}, room=f"unit_node_{unit_id}")
+
+@socketio.on('unit_login')
+def handle_unit_login(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import join_room
+    join_room(f"unit_node_{unit_id}")
+    print(f"Unit {unit_id} logged into control room")
+
+@socketio.on('video_frame')
+def handle_video_frame(data):
+    unit_id = data.get('unit_id')
+    # Relay directly to watchers
+    emit('live_frame', data, room=f"stream_{unit_id}", include_self=False)
+
 if __name__ == '__main__':
     # Units are now managed exclusively in PostgreSQL
     socketio.run(app, host='0.0.0.0', port=5010, debug=True, allow_unsafe_werkzeug=True)
