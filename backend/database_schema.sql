@@ -290,7 +290,7 @@ ON CONFLICT (org_id) DO NOTHING;
 
 -- Seed Root Admin (Password: admin@1234)
 INSERT INTO users (username, email, password_hash, role, org_id)
-VALUES ('krishisahayogi', 'krishisahayogi.2025@gmail.com', '$2b$12$vFFMs4YqExZFWexEPhOHv.Z.gSPCiJdCB9jm3U/9rWLP7o4Vl4V0G', 'ROOT', 1)
+VALUES ('krishisahayogi', 'krishisahayogi.2025@gmail.com', '$2b$12$vFFMs4YqExZFWexEPhOHv.Z.gSPCiJdCB9jm3U/9rWLP7o4Vl4V0G', 'ROOT', 1);
 -- ============================================================
 -- 7. CAMERA & ASSET AUDIT
 -- ============================================================

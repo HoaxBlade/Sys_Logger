@@ -791,7 +791,7 @@ def ensure_schema_ready():
         
         # 2. Pre-create current and next month partitions
         cur.execute("SELECT create_system_metrics_partition(CURRENT_DATE)")
-        cur.execute("SELECT create_system_metrics_partition(CURRENT_DATE + INTERVAL '1 month')")
+        cur.execute("SELECT create_system_metrics_partition((CURRENT_DATE + INTERVAL '1 month')::DATE)")
         
         conn.commit()
         cur.close()

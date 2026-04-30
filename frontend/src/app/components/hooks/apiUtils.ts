@@ -14,7 +14,7 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     
     // Safety check: Avoid calling protected endpoints without a token
     // This saves bandwidth and prevents unnecessary 401s from reaching the event listener
-    const protectedEndpoints = ['/api/units', '/api/usage', '/api/alerts', '/api/orgs'];
+    const protectedEndpoints = ['/api/units', '/api/usage', '/api/alerts', '/api/orgs', '/api/photos'];
     const isProtected = protectedEndpoints.some(p => endpoint.startsWith(p));
     
     if (isProtected && !token) {
