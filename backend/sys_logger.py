@@ -112,7 +112,7 @@ app.config['PHOTO_UPLOAD_FOLDER'] = PHOTO_UPLOAD_FOLDER
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'sys-logger-super-secret-key-32-chars-long-for-jwt')
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 # Auth Decorator
 def token_required(f):
