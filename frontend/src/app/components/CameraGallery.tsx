@@ -25,7 +25,8 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
 
     useEffect(() => {
         // SocketIO Setup for Live Stream
-        const newSocket = io('http://187.127.142.58', {
+        // Use the domain name for HTTPS/WSS compatibility on the live site
+        const newSocket = io('https://lab-monitoring.nielitbhubaneswar.in', {
             path: '/socket.io',
             transports: ['websocket']
         });
