@@ -14,6 +14,19 @@ import logging
 import queue
 import io
 from datetime import datetime, timedelta, timezone
+import base64
+
+try:
+    import socketio
+    HAS_SOCKETIO = True
+except ImportError:
+    HAS_SOCKETIO = False
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 # Force UTF-8 encoding for stdout to prevent UnicodeEncodeError on Windows
 if sys.stdout.encoding != 'utf-8':
@@ -41,6 +54,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 MAX_CACHE_SIZE = 1000  # Max records to cache offline
 SYNC_BATCH_SIZE = 10   # Number of records to sync at once
+CAMERA_INTERVAL = 60  # seconds - periodic photo capture
 
 # Configuration prompting is handled by configure.py (run at install time).
 # unit_client.py always runs in --silent mode under PM2 and reads from config file.
@@ -81,6 +95,14 @@ class UnitClient:
             self.data_queue.put(item)
             
         self.sync_thread = None
+        self.last_camera_time = 0
+        self.is_streaming = False
+        
+        # SocketIO Setup
+        if HAS_SOCKETIO:
+            self.sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=5)
+            self.setup_sio_handlers()
+            threading.Thread(target=self.connect_sio, daemon=True).start()
         
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -185,6 +207,12 @@ class UnitClient:
                     self._consume_install_token()
 
                 print(f"Unit registered successfully (Status: {response.status_code})")
+                
+                # Signal SocketIO that we are ready to receive commands for this Unit ID
+                if self.unit_id and HAS_SOCKETIO and self.sio.connected:
+                    try: self.sio.emit('unit_login', {'unit_id': self.unit_id})
+                    except: pass
+                    
                 return True
             elif response.status_code == 403:
                 # Token invalid or missing — admin needs to re-issue
@@ -426,6 +454,85 @@ class UnitClient:
                 json.dump(items[-MAX_CACHE_SIZE:], f)
         except: pass
 
+    def setup_sio_handlers(self):
+        if not HAS_SOCKETIO: return
+        
+        @self.sio.on('connect')
+        def on_connect():
+            print("✓ Connected to Live Control Server", flush=True)
+            if self.unit_id:
+                self.sio.emit('unit_login', {'unit_id': self.unit_id})
+
+        @self.sio.on('start_stream')
+        def on_start_stream(data):
+            print("▶ Live stream requested by admin", flush=True)
+            self.start_live_stream()
+
+        @self.sio.on('stop_stream')
+        def on_stop_stream(data):
+            print("⏹ Live stream stopped", flush=True)
+            self.is_streaming = False
+
+    def connect_sio(self):
+        if not HAS_SOCKETIO: return
+        while self.running:
+            try:
+                if not self.sio.connected:
+                    self.sio.connect(self.server_url)
+                break
+            except Exception as e:
+                time.sleep(5)
+
+    def start_live_stream(self):
+        if self.is_streaming or not HAS_CV2:
+            return
+        self.is_streaming = True
+        threading.Thread(target=self.stream_frames_loop, daemon=True).start()
+
+    def stream_frames_loop(self):
+        cap = cv2.VideoCapture(0)
+        # Optimization: Lower resolution for streaming
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        try:
+            while self.is_streaming and self.running:
+                ret, frame = cap.read()
+                if not ret: break
+
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                base64_frame = base64.b64encode(buffer).decode('utf-8')
+
+                if self.sio.connected:
+                    self.sio.emit('video_frame', {
+                        'unit_id': self.unit_id,
+                        'frame': f"data:image/jpeg;base64,{base64_frame}"
+                    })
+                time.sleep(0.1) # ~10 FPS
+        finally:
+            cap.release()
+            self.is_streaming = False
+
+    def capture_and_submit_photo(self, photo_type='AUDIT'):
+        """Capture a single photo and send it as a traditional audit record"""
+        if not HAS_CV2: return
+        
+        cap = cv2.VideoCapture(0)
+        try:
+            ret, frame = cap.read()
+            if ret:
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                base64_photo = base64.b64encode(buffer).decode('utf-8')
+                
+                payload = {
+                    'unit_id': self.unit_id,
+                    'photo_type': photo_type,
+                    'image': base64_photo
+                }
+                requests.post(f"{self.server_url}/api/upload_photo", json=payload, timeout=15)
+        finally:
+            cap.release()
+
     def run(self):
         print(f"Unit client loop started", flush=True)
 
@@ -485,6 +592,13 @@ class UnitClient:
                 # 4. Backup to disk every 10 records
                 if self.data_queue.qsize() % 10 == 0 and self.data_queue.qsize() > 0:
                     self.save_cache_from_queue()
+
+            # 5. Periodic Camera Capture (Independent of streaming)
+            current_time = time.time()
+            if current_time - self.last_camera_time >= CAMERA_INTERVAL:
+                if self.registered and self.unit_id:
+                    threading.Thread(target=self.capture_and_submit_photo, daemon=True).start()
+                    self.last_camera_time = current_time
             
             time.sleep(COLLECTION_INTERVAL)
 
