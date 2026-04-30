@@ -25,9 +25,10 @@ export const CameraGallery = ({ unitId, unitName }: CameraGalleryProps) => {
 
     useEffect(() => {
         // SocketIO Setup for Live Stream
-        // Dynamically detect if we are on Localhost or Live Site
+        // On localhost → connect directly to VPS IP (HTTP is fine)
+        // On live site (HTTPS) → must use WSS, so connect to our SSL api subdomain
         const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-        const socketUrl = isLocal ? 'http://187.127.142.58' : 'https://lab-monitoring.nielitbhubaneswar.in';
+        const socketUrl = isLocal ? 'http://187.127.142.58' : 'https://api.nielitbhubaneswar.in';
         
         const newSocket = io(socketUrl, {
             path: '/socket.io',
