@@ -1,0 +1,54 @@
+================================================================================
+METHOD 1: THE DATABASE & API FOUNDATION (THE ADDRESS BOOK)
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+The system needs a "memory" of where the central cameras are located. We won't 
+install software on the cameras, so we store their local RTSP URLs and link 
+each camera to a "Host Node" (an existing PC in the lab) that is responsible 
+for fetching the video.
+
+2. DATABASE CHANGES (PostgreSQL)
+--------------------------------
+FILE: [Direct SQL Execution]
+NEW TABLE: `cameras`
+
+Columns:
+- id: SERIAL PRIMARY KEY
+- name: VARCHAR(255) (e.g., "Lab North Entrance")
+- rtsp_url: TEXT (e.g., "rtsp://admin:pass@192.168.1.50/stream")
+- organization_id: INTEGER (Link to the Org)
+- host_unit_id: VARCHAR(50) (The ID of the PC node that will relay the video)
+- status: VARCHAR(20) (Default: 'OFFLINE')
+- created_at: TIMESTAMP
+
+3. BACKEND FILE MODIFICATIONS
+-----------------------------
+FILE: `backend/sys_logger.py`
+
+A. Add new endpoints for Camera Management:
+   - GET `/api/cameras`: Fetch all cameras for a specific Org.
+   - POST `/api/cameras`: Register a new camera with its RTSP URL and Host Node.
+   - DELETE `/api/cameras/<id>`: Remove a camera.
+
+B. Logic for "Host Node" Mapping:
+   - When a camera is added, the backend must verify that the `host_unit_id` 
+     belongs to the same Organization. This prevents one lab from accidentally 
+     using another lab's PC as a bridge.
+
+4. CODE STRUCTURE PREVIEW (Python/Flask)
+----------------------------------------
+@app.route('/api/cameras', methods=['POST'])
+@token_required
+def add_camera(current_user):
+    # 1. Parse name, rtsp_url, and host_unit_id from request.
+    # 2. Insert into 'cameras' table.
+    # 3. Emit a 'camera_list_update' via SocketIO so the Dashboard refreshes.
+
+5. CHALLENGES TO ADDRESS
+------------------------
+- RTSP URL Security: We must ensure these URLs are only sent to the Host Node,
+  not leaked to unauthorized users.
+- Validation: The RTSP URL must be checked for basic format (starts with rtsp://).
+================================================================================

@@ -1,0 +1,56 @@
+================================================================================
+METHOD 3: THE CLIENT-SIDE RTSP ENGINE (THE "WORKER" LOGIC)
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+The PC Node in the lab is the "Hero" of this feature. It must be able to 
+multi-task: keep logging CPU/RAM, keep its own webcam ready, and now 
+connect to an external IP Camera on the local network.
+
+2. CLIENT FILE MODIFICATIONS
+----------------------------
+FILE: `client_deploy/src/unit_client.py`
+
+A. The "Remote Camera Worker" Class:
+   We will create a new class `RemoteCameraRelay` that runs in its own 
+   background thread. This prevents the main logger from freezing if 
+   the camera connection is slow.
+
+B. The OpenCV Logic:
+   ```python
+   def run_relay(self):
+       cap = cv2.VideoCapture(self.rtsp_url)
+       while self.is_active:
+           ret, frame = cap.read()
+           if ret:
+               # 1. Resize for performance (640x480)
+               # 2. Encode to JPEG (Quality 40)
+               # 3. Convert to Base64
+               # 4. Emit 'relay_frame' to VPS
+           time.sleep(0.05) # 20 FPS cap
+   ```
+
+3. TASK MANAGEMENT
+------------------
+The `unit_client` will maintain a dictionary of `active_relays`.
+- Key: `camera_id`
+- Value: `Thread Object`
+
+When the VPS sends `start_camera_relay`, the client checks if that camera 
+is already being streamed. If not, it spawns a new thread.
+
+4. NETWORK CONSIDERATIONS
+-------------------------
+- Local Network Access: The PC must have firewall permissions to access 
+  port 554 (RTSP) on the local lab network.
+- Bandwidth Cap: If the lab internet is slow, the client will automatically 
+  drop every 2nd frame to ensure the "Identity" logs (CPU/RAM) still get 
+  through to the VPS.
+
+5. ERROR HANDLING (THE " holes" YOU NOTICED)
+--------------------------------------------
+- If the camera goes offline, the PC must not crash. It should try to 
+  reconnect 3 times, and if it still fails, send a `camera_error` message 
+  to the VPS so the Dashboard can show "No Signal."
+================================================================================

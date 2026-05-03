@@ -1,0 +1,49 @@
+================================================================================
+METHOD 4: THE FRONTEND DASHBOARD UI (THE "VIEW")
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+The Dashboard needs to present the Lab Camera as a professional resource. 
+It should be easy to find and look high-end.
+
+2. FRONTEND FILE MODIFICATIONS
+------------------------------
+FILE: `frontend/src/app/components/CameraGallery.tsx`
+FILE: `frontend/src/app/fleet/page.tsx`
+
+A. The "Fleet" Sidebar Update:
+   - We will add a "Central Cameras" section below the "Nodes" list.
+   - Status indicators: Green dot (Ready), Red dot (In Use), Gray dot (Offline).
+
+B. The "Live Monitor" Overhaul:
+   - When viewing a Lab Camera, the UI should enter a "Theater Mode."
+   - We will add a "Source Switcher" dropdown. 
+     Example: [ Central Lab Cam v ] 
+              - North Entrance
+              - Server Rack
+              - My Local Webcam
+
+3. NEW COMPONENTS
+-----------------
+A. `CameraAddModal.tsx`:
+   A sleek popup form to add a new camera.
+   - Inputs: Name, RTSP URL, Host Node Selection (Dropdown of all active PCs).
+
+B. `CameraCard.tsx`:
+   A small widget showing a thumbnail of the last known frame and the 
+   camera's metadata.
+
+4. USER EXPERIENCE (UX) POLISH
+------------------------------
+- Loading States: While the PC is waking up the camera (Phase 3), the UI 
+  should show "Connecting to Lab Infrastructure..." with a spinner.
+- Resolution Toggle: A button to switch between "Low Bandwidth" and 
+  "High Detail" modes.
+
+5. THE "DASHBOARD" FEEL
+-----------------------
+The goal is to make the user feel like they are in a security control room. 
+We will use a dark, semi-transparent (Glassmorphism) layout for the camera 
+controls to match your current premium design.
+================================================================================
