@@ -28,23 +28,57 @@ Columns:
 FILE: `backend/sys_logger.py`
 
 A. Add new endpoints for Camera Management:
-   - GET `/api/cameras`: Fetch all cameras for a specific Org.
-   - POST `/api/cameras`: Register a new camera with its RTSP URL and Host Node.
-   - DELETE `/api/cameras/<id>`: Remove a camera.
+   
+   - GET `/api/cameras`:
+     ```python
+     @app.route('/api/cameras', methods=['GET'])
+     @token_required
+     def get_cameras(current_user):
+         conn = get_db_connection()
+         cur = conn.cursor(cursor_factory=RealDictCursor)
+         cur.execute("SELECT * FROM cameras WHERE organization_id = %s", (current_user['org_id'],))
+         cameras = cur.fetchall()
+         cur.close()
+         conn.close()
+         return jsonify(cameras)
+     ```
+
+   - POST `/api/cameras`:
+     ```python
+     @app.route('/api/cameras', methods=['POST'])
+     @token_required
+     def add_camera(current_user):
+         data = request.get_json()
+         conn = get_db_connection()
+         cur = conn.cursor()
+         cur.execute("""
+             INSERT INTO cameras (name, rtsp_url, organization_id, host_unit_id)
+             VALUES (%s, %s, %s, %s)
+         """, (data['name'], data['rtsp_url'], current_user['org_id'], data['host_unit_id']))
+         conn.commit()
+         cur.close()
+         conn.close()
+         return jsonify({'message': 'Camera added successfully'})
+     ```
 
 B. Logic for "Host Node" Mapping:
    - When a camera is added, the backend must verify that the `host_unit_id` 
      belongs to the same Organization. This prevents one lab from accidentally 
      using another lab's PC as a bridge.
 
-4. CODE STRUCTURE PREVIEW (Python/Flask)
-----------------------------------------
-@app.route('/api/cameras', methods=['POST'])
-@token_required
-def add_camera(current_user):
-    # 1. Parse name, rtsp_url, and host_unit_id from request.
-    # 2. Insert into 'cameras' table.
-    # 3. Emit a 'camera_list_update' via SocketIO so the Dashboard refreshes.
+4. SQL SCHEMA PIECE
+------------------
+```sql
+CREATE TABLE cameras (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    rtsp_url TEXT NOT NULL,
+    organization_id INTEGER REFERENCES organizations(id),
+    host_unit_id VARCHAR(50) NOT NULL,
+    status VARCHAR(20) DEFAULT 'OFFLINE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 5. CHALLENGES TO ADDRESS
 ------------------------

@@ -29,22 +29,30 @@ B. The Workflow:
 FILE: `backend/sys_logger.py`
 
 A. SocketIO Event Listeners:
-   - Handle `request_remote_stream`: Validates user permissions for the Org.
-   - Handle `stop_remote_stream`: Tells the PC to shut down the RTSP thread 
-     to save bandwidth.
+   ```python
+   @socketio.on('request_remote_stream')
+   def handle_request_remote_stream(data):
+       camera_id = data.get('camera_id')
+       # 1. Fetch camera details from DB
+       # 2. Join the Admin to the camera room
+       join_room(f"remote_stream_{camera_id}")
+       # 3. Tell the host PC to start pulling RTSP
+       emit('start_camera_relay', {
+           'camera_id': camera_id,
+           'rtsp_url': camera['rtsp_url']
+       }, room=f"unit_node_{camera['host_unit_id']}")
 
-B. The "Frame Relay" Route:
-   We need a specific handler for frames coming from the PC that are NOT 
-   from its own webcam.
-   - Event: `relay_frame` { camera_id, frame_data }
-   - Action: Broadcast this frame to everyone in `remote_stream_<camera_id>`.
+   @socketio.on('relay_frame')
+   def handle_relay_frame(data):
+       # Simply broadcast the frame to everyone in the camera's room
+       emit('live_frame', data, room=f"remote_stream_{data['camera_id']}")
+   ```
 
 4. SECURITY LOGIC
 -----------------
-- We must ensure that the PC only accepts `start_camera_relay` commands 
-  if they come from the trusted VPS.
-- We will add a "Stream Token" to the handshake to prevent unauthorized 
-  clients from injecting fake video feeds.
+- The `handle_relay_frame` will be limited to authenticated Unit Nodes only.
+- Each `relay_frame` payload will include the `camera_id` to route it 
+  correctly on the frontend.
 
 5. PERFORMANCE PREDICTION
 -------------------------

@@ -10,25 +10,38 @@ It should be easy to find and look high-end.
 2. FRONTEND FILE MODIFICATIONS
 ------------------------------
 FILE: `frontend/src/app/components/CameraGallery.tsx`
-FILE: `frontend/src/app/fleet/page.tsx`
 
-A. The "Fleet" Sidebar Update:
-   - We will add a "Central Cameras" section below the "Nodes" list.
-   - Status indicators: Green dot (Ready), Red dot (In Use), Gray dot (Offline).
+A. The "Live Monitor" Logic:
+```tsx
+const [cameraSource, setCameraSource] = useState('LOCAL'); // LOCAL or REMOTE
 
-B. The "Live Monitor" Overhaul:
-   - When viewing a Lab Camera, the UI should enter a "Theater Mode."
-   - We will add a "Source Switcher" dropdown. 
-     Example: [ Central Lab Cam v ] 
-              - North Entrance
-              - Server Rack
-              - My Local Webcam
+const toggleSource = (newSource) => {
+    if (newSource === 'REMOTE') {
+        socket.emit('request_remote_stream', { camera_id: selectedCamera.id });
+    } else {
+        socket.emit('stop_remote_stream', { camera_id: selectedCamera.id });
+    }
+    setCameraSource(newSource);
+};
+
+// Listener for relayed frames
+useEffect(() => {
+    socket.on('live_frame', (data) => {
+        if (data.camera_id === selectedCamera.id) {
+            setFrame(data.frame);
+        }
+    });
+}, [selectedCamera]);
+```
 
 3. NEW COMPONENTS
 -----------------
 A. `CameraAddModal.tsx`:
-   A sleek popup form to add a new camera.
-   - Inputs: Name, RTSP URL, Host Node Selection (Dropdown of all active PCs).
+   A sleek popup form with these fields:
+   - Name (Text)
+   - RTSP URL (Text)
+   - Host Node (Select Dropdown)
+   - Submit Button (Calls POST /api/cameras)
 
 B. `CameraCard.tsx`:
    A small widget showing a thumbnail of the last known frame and the 
