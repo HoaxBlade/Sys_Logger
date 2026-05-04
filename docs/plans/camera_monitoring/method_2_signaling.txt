@@ -4,59 +4,45 @@ METHOD 2: THE COMMAND & SIGNAL FLOW (THE HANDSHAKE)
 
 1. LOGIC OVERVIEW
 -----------------
-Since the VPS doesn't have a direct connection to the camera, it must act as 
-a command center. When an Admin wants to see video, the VPS sends a 
-"Private Message" to the specific Lab PC (Host Node) telling it to start 
-working.
+To support the ₹35 introductory pricing, we MUST save bandwidth. The VPS will 
+default to requesting a "SUBSTREAM" (low-res) from the camera unless the Admin 
+explicitly asks for "HD".
 
 2. COMMUNICATION ARCHITECTURE
 -----------------------------
-We will use the existing SocketIO connection. 
+A. The Handshake:
+   1. Admin clicks "Inspect" -> Browser emits `request_remote_stream` { camera_id, quality: 'SUBSTREAM' }.
+   2. VPS tells the Host PC: `start_camera_relay` { camera_id, rtsp_url, quality }.
+   3. PC node captures from Camera and compresses based on `quality`.
 
-A. The "Room" Logic:
-   Each camera will have its own virtual "Relay Room" on the VPS.
-   Room Name Format: `remote_stream_<camera_id>`
-
-B. The Workflow:
-   1. Admin clicks "Live View" in Browser.
-   2. Browser emits `request_remote_stream` { camera_id } to VPS.
-   3. VPS looks up the Camera ID and finds the `host_unit_id` (the PC).
-   4. VPS emits `start_camera_relay` { camera_id, rtsp_url } specifically 
-      to the room: `unit_node_<host_unit_id>`.
+B. Auto-Kill (Bandwidth Saver):
+   - If the SocketIO room `remote_stream_<camera_id>` has 0 viewers for 2 minutes,
+     the VPS emits `stop_camera_relay` to the PC to stop the stream.
 
 3. BACKEND FILE MODIFICATIONS
 -----------------------------
 FILE: `backend/sys_logger.py`
 
 A. SocketIO Event Listeners:
-   ```python
-   @socketio.on('request_remote_stream')
-   def handle_request_remote_stream(data):
-       camera_id = data.get('camera_id')
-       # 1. Fetch camera details from DB
-       # 2. Join the Admin to the camera room
-       join_room(f"remote_stream_{camera_id}")
-       # 3. Tell the host PC to start pulling RTSP
-       emit('start_camera_relay', {
-           'camera_id': camera_id,
-           'rtsp_url': camera['rtsp_url']
-       }, room=f"unit_node_{camera['host_unit_id']}")
+```python
+@socketio.on('request_remote_stream')
+def handle_remote_stream_request(data):
+    camera_id = data.get('camera_id')
+    quality = data.get('quality', 'SUBSTREAM') # Default to 360p
+    
+    join_room(f"remote_stream_{camera_id}")
+    
+    # Notify Host PC
+    # (Find host_unit_id and rtsp_url from the new 'cameras' table)
+    emit('start_camera_relay', {
+        'camera_id': camera_id,
+        'rtsp_url': camera['rtsp_url'],
+        'quality': quality
+    }, room=f"unit_node_{camera['host_unit_id']}")
+```
 
-   @socketio.on('relay_frame')
-   def handle_relay_frame(data):
-       # Simply broadcast the frame to everyone in the camera's room
-       emit('live_frame', data, room=f"remote_stream_{data['camera_id']}")
-   ```
-
-4. SECURITY LOGIC
------------------
-- The `handle_relay_frame` will be limited to authenticated Unit Nodes only.
-- Each `relay_frame` payload will include the `camera_id` to route it 
-  correctly on the frontend.
-
-5. PERFORMANCE PREDICTION
+4. PERFORMANCE PREDICTION
 -------------------------
-- The VPS will handle this via 'eventlet' (Async). 
-- Since we are just passing bytes (not processing them), the VPS memory 
-  usage will remain low (approx 10MB - 20MB per active stream).
+- SUBSTREAM: ~200 Kbps (Fits 123 labs on your 8 TB plan).
+- HD: ~1.5 Mbps (Used only when the Admin toggles it).
 ================================================================================

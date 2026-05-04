@@ -50,39 +50,48 @@ A. Add new endpoints for Camera Management:
      def add_camera(current_user):
          data = request.get_json()
          conn = get_db_connection()
-         cur = conn.cursor()
-         cur.execute("""
-             INSERT INTO cameras (name, rtsp_url, organization_id, host_unit_id)
-             VALUES (%s, %s, %s, %s)
-         """, (data['name'], data['rtsp_url'], current_user['org_id'], data['host_unit_id']))
-         conn.commit()
-         cur.close()
-         conn.close()
-         return jsonify({'message': 'Camera added successfully'})
-     ```
+We need a place to store camera metadata (RTSP URLs) and a way to bill for them 
+at the introductory ₹35 price point.
 
-B. Logic for "Host Node" Mapping:
-   - When a camera is added, the backend must verify that the `host_unit_id` 
-     belongs to the same Organization. This prevents one lab from accidentally 
-     using another lab's PC as a bridge.
+2. PRICING PLAN UPDATE
+----------------------
+We will add a new entry to the `pricing_plans` table to handle camera access.
 
-4. SQL SCHEMA PIECE
-------------------
+```sql
+INSERT INTO pricing_plans (name, slug, price_monthly, node_limit, features, is_active)
+VALUES (
+    'Central Camera Access', 
+    'camera_access', 
+    35.00, 
+    1, 
+    '["24/7 Sub-stream View", "HD On-Demand", "Motion Alerts"]', 
+    true
+);
+```
+
+3. NEW TABLE: `cameras`
+-----------------------
 ```sql
 CREATE TABLE cameras (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    camera_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
     rtsp_url TEXT NOT NULL,
     organization_id INTEGER REFERENCES organizations(id),
     host_unit_id VARCHAR(50) NOT NULL,
+    stream_type VARCHAR(20) DEFAULT 'SUBSTREAM', -- SUBSTREAM or HD
     status VARCHAR(20) DEFAULT 'OFFLINE',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
+4. API ENDPOINTS (Flask)
+------------------------
+A. `POST /api/cameras`: Add a new camera (Validates if Org has paid ₹35).
+B. `GET /api/cameras`: List all cameras for the current organization.
+C. `PUT /api/cameras/<id>`: Update RTSP URL or Host PC.
+
 5. CHALLENGES TO ADDRESS
 ------------------------
-- RTSP URL Security: We must ensure these URLs are only sent to the Host Node,
-  not leaked to unauthorized users.
-- Validation: The RTSP URL must be checked for basic format (starts with rtsp://).
+- Bandwidth Protection: Default all streams to Sub-stream (360p) to fit 123 labs.
+- Payment Integration: Use existing Razorpay flow to purchase the ₹35 'camera_access' slot.
 ================================================================================
