@@ -1272,6 +1272,44 @@ def get_units_route(current_user):
     print(f"DEBUG [SYNC]: Fetching units for {user_email} | Role: {user_role} | Org: {user_org} | Found: {len(units)} units")
     return jsonify(units)
 
+@app.route('/api/cameras', methods=['GET'])
+@token_required
+def get_cameras_route(current_user):
+    """Get all cameras for the current organization"""
+    try:
+        cameras = CameraStore.get_all_cameras(current_user.get('org_id'))
+        return jsonify(cameras)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras', methods=['POST'])
+@token_required
+def add_camera_route(current_user):
+    """Register a new IP camera"""
+    data = request.get_json()
+    name = data.get('name')
+    rtsp_url = data.get('rtsp_url')
+    host_unit_id = data.get('host_unit_id')
+    
+    if not all([name, rtsp_url, host_unit_id]):
+        return jsonify({'error': 'Missing required fields'}), 400
+        
+    try:
+        camera_id = CameraStore.add_camera(name, rtsp_url, host_unit_id, current_user.get('org_id'))
+        return jsonify({'message': 'Camera registered successfully', 'camera_id': camera_id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+@token_required
+def delete_camera_route(current_user, camera_id):
+    """Remove a camera registration"""
+    try:
+        CameraStore.delete_camera(camera_id, current_user.get('org_id'))
+        return jsonify({'message': 'Camera deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/orgs', methods=['GET'])
 @token_required
 def get_orgs(current_user):
@@ -1758,6 +1796,55 @@ def get_unit_usage(current_user, unit_id):
         
     data = UnitStore.get_usage(unit_id, limit=100)
     return jsonify(data)
+
+class CameraStore:
+    """Store for IP Camera management with PostgreSQL Persistence"""
+
+    @staticmethod
+    def get_all_cameras(org_id):
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute("SELECT * FROM cameras WHERE organization_id = %s ORDER BY created_at DESC", (org_id,))
+            return cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def add_camera(name, rtsp_url, host_unit_id, org_id):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cameras (name, rtsp_url, organization_id, host_unit_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING camera_id
+            """, (name, rtsp_url, org_id, host_unit_id))
+            camera_id = cur.fetchone()[0]
+            conn.commit()
+            return camera_id
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def delete_camera(camera_id, org_id):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s AND organization_id = %s", (camera_id, org_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cur.close()
+            conn.close()
 
 # --- SERVER MONITORING ---
 
@@ -2788,6 +2875,52 @@ def handle_video_frame(data):
     unit_id = data.get('unit_id')
     # Relay directly to watchers
     emit('live_frame', data, room=f"stream_{unit_id}", include_self=False)
+
+@socketio.on('request_remote_stream')
+def handle_remote_stream_request(data):
+    """Admin requests a live feed from a remote IP camera"""
+    camera_id = data.get('camera_id')
+    quality = data.get('quality', 'SUBSTREAM')
+    
+    from flask_socketio import join_room
+    join_room(f"remote_stream_{camera_id}")
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
+    camera = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if camera:
+        emit('start_camera_relay', {
+            'camera_id': camera_id,
+            'rtsp_url': camera['rtsp_url'],
+            'quality': quality
+        }, room=f"unit_node_{camera['host_unit_id']}")
+
+@socketio.on('relay_frame')
+def handle_relay_frame(data):
+    """Host PC sends a frame; broadcast it to all watching Admins"""
+    camera_id = data.get('camera_id')
+    emit('live_frame', data, room=f"remote_stream_{camera_id}")
+
+@socketio.on('stop_remote_stream')
+def handle_stop_remote_stream(data):
+    """Admin stops watching; VPS tells Host PC to kill the thread"""
+    camera_id = data.get('camera_id')
+    from flask_socketio import leave_room
+    leave_room(f"remote_stream_{camera_id}")
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
+    camera = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if camera:
+        emit('stop_camera_relay', {'camera_id': camera_id}, room=f"unit_node_{camera['host_unit_id']}")
 
 if __name__ == '__main__':
     # Units are now managed exclusively in PostgreSQL

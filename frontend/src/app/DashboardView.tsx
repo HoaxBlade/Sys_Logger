@@ -18,6 +18,7 @@ import {
     Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut, Camera
 } from 'lucide-react'
 import { CameraGallery } from './components/CameraGallery';
+import { RemoteCameraMonitor } from './components/RemoteCameraMonitor';
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -274,7 +275,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const loading = apiUnits.loading
     const selectedUnitId = apiUsage.selectedUnitId
 
-    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management' | 'camera'>('metrics')
+    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management' | 'camera' | 'central_monitor'>('metrics')
     const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'gpu' | 'ram' | 'network_rx'>('cpu')
 
 
@@ -892,6 +893,22 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                     {activeTab === 'management' ? 'Exit Settings' : 'System Settings'}
                                 </button>
                                 
+                                <button
+                                    onClick={() => {
+                                        setActiveTab(activeTab === 'central_monitor' ? 'metrics' : 'central_monitor');
+                                        setIsMobileMenuOpen(false);
+                                    }}
+                                    className={cn(
+                                        "w-full py-3.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 transition-all duration-300 ring-1 shadow-sm hover:scale-[1.01] active:scale-95",
+                                        activeTab === 'central_monitor'
+                                            ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_8px_20px_rgba(79,70,22,0.3)] ring-indigo-400/50"
+                                            : "bg-white/60 backdrop-blur-md text-zinc-600 hover:bg-white hover:text-indigo-500 ring-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.05)]"
+                                    )}
+                                >
+                                    <Camera className="w-4 h-4" />
+                                    {activeTab === 'central_monitor' ? 'Exit Monitor' : 'Central Monitor'}
+                                </button>
+                                
                                 {activeTab === 'management' && user?.org_id && (
                                     <button
                                         onClick={() => {
@@ -1443,7 +1460,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
                 <main className="flex-1 flex flex-col relative overflow-hidden w-full min-h-0">
                     <AnimatePresence mode="wait">
-                        {activeTab === 'management' ? (
+                        {activeTab === 'central_monitor' ? (
+                            <motion.div
+                                key="central_monitor"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="flex-1 min-h-0 p-4 lg:p-0"
+                            >
+                                <RemoteCameraMonitor />
+                            </motion.div>
+                        ) : activeTab === 'management' ? (
                             <motion.div
                                 key="management"
                                 initial={{ opacity: 0, y: 10 }}

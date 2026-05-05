@@ -59,7 +59,62 @@ CAMERA_INTERVAL = 60  # seconds - periodic photo capture
 # Configuration prompting is handled by configure.py (run at install time).
 # unit_client.py always runs in --silent mode under PM2 and reads from config file.
 
+class RemoteCameraRelay(threading.Thread):
+    """Threaded relay to pull RTSP and push base64 frames to VPS"""
+    def __init__(self, camera_id, rtsp_url, quality, sio_client, unit_id):
+        super().__init__(daemon=True)
+        self.camera_id = camera_id
+        self.rtsp_url = rtsp_url
+        self.quality = quality
+        self.sio = sio_client
+        self.unit_id = unit_id
+        self.running = True
 
+    def run(self):
+        if not HAS_CV2:
+            print(f"ERROR: Cannot start relay for {self.camera_id}. OpenCV not installed.", flush=True)
+            return
+
+        print(f"Relay started for camera {self.camera_id} at {self.quality} quality", flush=True)
+        cap = cv2.VideoCapture(self.rtsp_url)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        target_width = 1280 if self.quality == 'HD' else 640
+        
+        try:
+            while self.running:
+                ret, frame = cap.read()
+                if not ret:
+                    time.sleep(2)
+                    cap.open(self.rtsp_url)
+                    continue
+
+                # Resize for bandwidth efficiency
+                h, w = frame.shape[:2]
+                aspect = w / h
+                new_w = target_width
+                new_h = int(new_w / aspect)
+                frame = cv2.resize(frame, (new_w, new_h))
+
+                # Encode to JPEG
+                quality_val = 80 if self.quality == 'HD' else 50
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality_val])
+                
+                # Push to VPS
+                self.sio.emit('relay_frame', {
+                    'camera_id': self.camera_id,
+                    'unit_id': self.unit_id,
+                    'frame': base64.b64encode(buffer).decode('utf-8')
+                })
+                
+                # FPS Control
+                time.sleep(0.05 if self.quality == 'HD' else 0.1)
+        finally:
+            cap.release()
+            print(f"Relay stopped for camera {self.camera_id}", flush=True)
+
+    def stop(self):
+        self.running = False
 
 class UnitClient:
     def __init__(self):
@@ -97,6 +152,7 @@ class UnitClient:
         self.sync_thread = None
         self.last_camera_time = 0
         self.is_streaming = False
+        self.active_relays = {} # camera_id -> RemoteCameraRelay instance
         
         # SocketIO Setup
         if HAS_SOCKETIO:
@@ -472,6 +528,27 @@ class UnitClient:
         def on_stop_stream(data):
             print("⏹ Live stream stopped", flush=True)
             self.is_streaming = False
+
+        @self.sio.on('start_camera_relay')
+        def on_start_relay(data):
+            camera_id = data.get('camera_id')
+            rtsp_url = data.get('rtsp_url')
+            quality = data.get('quality', 'SUBSTREAM')
+            
+            # Stop existing relay for this ID if any
+            if camera_id in self.active_relays:
+                self.active_relays[camera_id].stop()
+            
+            relay = RemoteCameraRelay(camera_id, rtsp_url, quality, self.sio, self.unit_id)
+            self.active_relays[camera_id] = relay
+            relay.start()
+
+        @self.sio.on('stop_camera_relay')
+        def on_stop_relay(data):
+            camera_id = data.get('camera_id')
+            if camera_id in self.active_relays:
+                self.active_relays[camera_id].stop()
+                del self.active_relays[camera_id]
 
     def connect_sio(self):
         if not HAS_SOCKETIO: return
