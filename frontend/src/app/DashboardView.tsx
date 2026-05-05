@@ -729,6 +729,21 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 Dashboard
                             </h1>
                         </button>
+
+                        <div className="h-10 w-[1px] bg-zinc-100 hidden lg:block mx-2" />
+
+                        <button
+                            onClick={() => setActiveTab(activeTab === 'central_monitor' ? 'metrics' : 'central_monitor')}
+                            className={cn(
+                                "hidden lg:flex items-center gap-2.5 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ring-1",
+                                activeTab === 'central_monitor'
+                                    ? "bg-indigo-600 text-white shadow-[0_8px_20px_rgba(79,70,229,0.3)] ring-indigo-500"
+                                    : "bg-white text-zinc-500 hover:text-indigo-600 ring-zinc-200 hover:bg-indigo-50/50 hover:ring-indigo-100"
+                            )}
+                        >
+                            <Camera size={14} className={activeTab === 'central_monitor' ? 'text-white' : 'text-indigo-500'} />
+                            {activeTab === 'central_monitor' ? 'Exit Monitor' : 'Central Monitor'}
+                        </button>
                     </div>
                 </div>
 
@@ -891,22 +906,6 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 >
                                     <Shield className="w-4 h-4" />
                                     {activeTab === 'management' ? 'Exit Settings' : 'System Settings'}
-                                </button>
-                                
-                                <button
-                                    onClick={() => {
-                                        setActiveTab(activeTab === 'central_monitor' ? 'metrics' : 'central_monitor');
-                                        setIsMobileMenuOpen(false);
-                                    }}
-                                    className={cn(
-                                        "w-full py-3.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2.5 transition-all duration-300 ring-1 shadow-sm hover:scale-[1.01] active:scale-95",
-                                        activeTab === 'central_monitor'
-                                            ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_8px_20px_rgba(79,70,22,0.3)] ring-indigo-400/50"
-                                            : "bg-white/60 backdrop-blur-md text-zinc-600 hover:bg-white hover:text-indigo-500 ring-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.05)]"
-                                    )}
-                                >
-                                    <Camera className="w-4 h-4" />
-                                    {activeTab === 'central_monitor' ? 'Exit Monitor' : 'Central Monitor'}
                                 </button>
                                 
                                 {activeTab === 'management' && user?.org_id && (
