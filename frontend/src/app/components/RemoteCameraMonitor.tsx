@@ -3,64 +3,41 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, Play, Square, Settings, Trash2, Plus, Loader2, Maximize2, Shield, Wifi, Info, Globe } from 'lucide-react';
-import { io, Socket } from 'socket.io-client';
-import { apiFetch } from './hooks/apiUtils';
+import { useAuth } from './AuthContext';
 
-interface Camera {
+interface CameraItem {
     camera_id: number;
     name: string;
     rtsp_url: string;
-    host_unit_id: string;
-    stream_type: string;
     status: string;
 }
 
 export const RemoteCameraMonitor = () => {
-    const [cameras, setCameras] = useState<Camera[]>([]);
-    const [selectedCamera, setSelectedCamera] = useState<Camera | null>(null);
+    const { user, token } = useAuth();
+    const [cameras, setCameras] = useState<CameraItem[]>([]);
+    const [selectedCamera, setSelectedCamera] = useState<CameraItem | null>(null);
     const [isLive, setIsLive] = useState(false);
-    const [liveFrame, setLiveFrame] = useState<string | null>(null);
     const [quality, setQuality] = useState<'SUBSTREAM' | 'HD'>('SUBSTREAM');
-    const [socket, setSocket] = useState<Socket | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     // Camera Add Form State
     const [newCamName, setNewCamName] = useState('');
     const [newCamUrl, setNewCamUrl] = useState('');
-    const [newCamHost, setNewCamHost] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
     useEffect(() => {
-        fetchCameras();
-        
-        // SocketIO Setup
-        const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-        const socketUrl = isLocal ? 'http://187.127.142.58' : 'https://api.nielitbhubaneswar.in';
-        
-        const newSocket = io(socketUrl, {
-            path: '/socket.io',
-            transports: ['websocket']
-        });
-
-        newSocket.on('live_frame', (data: { camera_id: number, frame: string }) => {
-            if (selectedCamera && data.camera_id === selectedCamera.camera_id) {
-                setLiveFrame(`data:image/jpeg;base64,${data.frame}`);
-            }
-        });
-
-        setSocket(newSocket);
-
-        return () => {
-            if (isLive && selectedCamera) {
-                newSocket.emit('stop_remote_stream', { camera_id: selectedCamera.camera_id });
-            }
-            newSocket.disconnect();
-        };
-    }, [selectedCamera, isLive]);
+        if (token) fetchCameras();
+    }, [token]);
 
     const fetchCameras = async () => {
         try {
-            const response = await apiFetch('/api/cameras');
+            const response = await fetch(`${API_URL}/api/cameras`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             if (response.ok) {
                 const data = await response.json();
                 setCameras(data);
@@ -73,55 +50,53 @@ export const RemoteCameraMonitor = () => {
     };
 
     const handleAddCamera = async () => {
-        if (!newCamName || !newCamUrl || !newCamHost) return;
+        if (!newCamName || !newCamUrl) return;
+        setError(null);
+        setIsSubmitting(true);
         try {
-            await apiFetch('/api/cameras', {
+            const response = await fetch(`${API_URL}/api/cameras`, {
                 method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     name: newCamName,
                     rtsp_url: newCamUrl,
-                    host_unit_id: newCamHost
                 })
             });
-            setIsAddModalOpen(false);
-            fetchCameras();
-            setNewCamName(''); setNewCamUrl(''); setNewCamHost('');
+            const data = await response.json();
+            if (response.ok) {
+                setIsAddModalOpen(false);
+                fetchCameras();
+                setNewCamName(''); setNewCamUrl('');
+            } else {
+                setError(data.message || data.error || 'Failed to add camera');
+            }
         } catch (err) {
-            alert('Failed to add camera');
+            setError('Failed to add camera');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const toggleLive = () => {
-        if (!socket || !selectedCamera) return;
-
-        if (!isLive) {
-            socket.emit('request_remote_stream', { 
-                camera_id: selectedCamera.camera_id,
-                quality: quality 
-            });
-            setIsLive(true);
-        } else {
-            socket.emit('stop_remote_stream', { camera_id: selectedCamera.camera_id });
-            setIsLive(false);
-            setLiveFrame(null);
-        }
+        if (!selectedCamera) return;
+        setIsLive(!isLive);
     };
 
     const changeQuality = (newQuality: 'SUBSTREAM' | 'HD') => {
         setQuality(newQuality);
-        if (isLive && socket && selectedCamera) {
-            // Restart stream with new quality
-            socket.emit('request_remote_stream', { 
-                camera_id: selectedCamera.camera_id,
-                quality: newQuality 
-            });
-        }
+        // Note: Backend quality scaling can be implemented later via query parameters
     };
 
     const handleDeleteCamera = async (id: number) => {
         if (!confirm('Are you sure you want to delete this camera registration?')) return;
         try {
-            await apiFetch(`/api/cameras/${id}`, { method: 'DELETE' });
+            await fetch(`${API_URL}/api/cameras/${id}`, { 
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             fetchCameras();
             if (selectedCamera?.camera_id === id) {
                 setSelectedCamera(null);
@@ -132,10 +107,13 @@ export const RemoteCameraMonitor = () => {
         }
     };
 
+    const maxCameras = user?.tier?.toLowerCase() === 'business' ? 10 : user?.tier?.toLowerCase() === 'pro' ? 2 : 0;
+    const isQuotaReached = cameras.length >= maxCameras && user?.role !== 'ROOT';
+
     return (
         <div className="flex flex-col h-full bg-[#F8F9FA] rounded-[2.5rem] overflow-hidden border border-zinc-200/50 shadow-xl relative">
             {/* Header */}
-            <div className="p-6 border-b border-zinc-100 bg-white flex items-center justify-between">
+            <div className="p-6 border-b border-zinc-100 bg-white flex items-center justify-between z-10 relative">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-orange-500/10 rounded-2xl">
                         <Camera size={24} className="text-orange-600" />
@@ -146,19 +124,32 @@ export const RemoteCameraMonitor = () => {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
+                    <div className="hidden sm:flex text-xs bg-zinc-100 px-4 py-2 rounded-xl text-zinc-500 font-bold tracking-widest uppercase items-center gap-2">
+                        Quota: <span className="text-zinc-900">{cameras.length} / {user?.role === 'ROOT' ? '∞' : maxCameras}</span>
+                    </div>
                     <button 
                         onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-6 py-3 bg-zinc-900 text-white rounded-full text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg"
+                        disabled={isQuotaReached}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-full text-xs font-black uppercase tracking-widest transition-all shadow-lg ${
+                            isQuotaReached ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed' : 'bg-zinc-900 text-white hover:bg-orange-600'
+                        }`}
                     >
                         <Plus size={16} /> Register Camera
                     </button>
                 </div>
             </div>
 
+            {isQuotaReached && (
+                <div className="bg-orange-100 border-b border-orange-200 text-orange-800 px-6 py-2 text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+                    <Shield size={14} />
+                    You have reached your tier's camera limit. Upgrade to add more.
+                </div>
+            )}
+
             <div className="flex flex-1 overflow-hidden">
                 {/* Sidebar: Camera List */}
-                <div className="w-80 border-r border-zinc-100 bg-white/50 overflow-y-auto p-4 space-y-3">
+                <div className="w-80 border-r border-zinc-100 bg-white/50 overflow-y-auto p-4 space-y-3 z-10">
                     <h3 className="px-2 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4">Active Lab Feeds</h3>
                     {cameras.map((cam) => (
                         <button
@@ -177,7 +168,7 @@ export const RemoteCameraMonitor = () => {
                                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
                                     selectedCamera?.camera_id === cam.camera_id ? 'bg-orange-100 text-orange-600' : 'bg-zinc-100 text-zinc-400'
                                 }`}>
-                                    {cam.stream_type || 'IP FEED'}
+                                    {'IP FEED'}
                                 </span>
                                 <Trash2 
                                     size={14} 
@@ -186,7 +177,7 @@ export const RemoteCameraMonitor = () => {
                                 />
                             </div>
                             <h4 className="font-black text-zinc-900 tracking-tight mb-1">{cam.name}</h4>
-                            <p className="text-[10px] text-zinc-400 font-bold font-mono">HOST: {cam.host_unit_id}</p>
+                            <p className="text-[10px] text-zinc-400 font-bold font-mono truncate">{cam.rtsp_url}</p>
                             
                             {selectedCamera?.camera_id === cam.camera_id && (
                                 <motion.div layoutId="active-indicator" className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-orange-500 rounded-r-full" />
@@ -249,22 +240,16 @@ export const RemoteCameraMonitor = () => {
                                 {/* Frame Render */}
                                 <div className="flex-1 flex items-center justify-center p-12">
                                     {isLive ? (
-                                        liveFrame ? (
-                                            <motion.img 
-                                                initial={{ opacity: 0, scale: 0.98 }}
-                                                animate={{ opacity: 1, scale: 1 }}
-                                                src={liveFrame}
-                                                className="w-full h-full object-contain rounded-3xl shadow-2xl ring-1 ring-white/10"
-                                            />
-                                        ) : (
-                                            <div className="flex flex-col items-center gap-6">
-                                                <div className="relative">
-                                                    <Loader2 className="w-12 h-12 animate-spin text-orange-500" />
-                                                    <div className="absolute inset-0 blur-xl bg-orange-500/20 animate-pulse" />
-                                                </div>
-                                                <p className="text-xs font-black text-white/40 uppercase tracking-[0.3em] animate-pulse">Establishing VPS-Relay Handshake...</p>
-                                            </div>
-                                        )
+                                        <motion.img 
+                                            initial={{ opacity: 0, scale: 0.98 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            src={`${API_URL}/api/cameras/${selectedCamera.camera_id}/stream?token=${token}`}
+                                            className="w-full h-full object-contain rounded-3xl shadow-2xl ring-1 ring-white/10"
+                                            onError={(e) => {
+                                                e.currentTarget.style.display = 'none';
+                                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                            }}
+                                        />
                                     ) : (
                                         <div className="text-center space-y-6 opacity-40">
                                             <div className="w-24 h-24 bg-white/5 rounded-[2.5rem] flex items-center justify-center border border-white/10 mx-auto">
@@ -276,6 +261,14 @@ export const RemoteCameraMonitor = () => {
                                             </div>
                                         </div>
                                     )}
+                                    <div className="absolute inset-0 hidden flex items-center justify-center text-gray-500">
+                                        <div className="flex flex-col items-center">
+                                            <svg className="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+                                            </svg>
+                                            <span className="text-sm font-black uppercase tracking-widest text-white/40">Stream Offline or Unreachable</span>
+                                        </div>
+                                    </div>
                                 </div>
                                 
                                 {/* Info Footer */}
@@ -291,7 +284,7 @@ export const RemoteCameraMonitor = () => {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 text-white/10 italic text-[10px]">
-                                        <Shield size={12} /> Encrypted P2P Relay Path
+                                        <Shield size={12} /> Proxied via Backend Securely
                                     </div>
                                 </div>
                             </div>
@@ -332,6 +325,11 @@ export const RemoteCameraMonitor = () => {
                                 <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-8">Establish a new IP stream gateway</p>
 
                                 <div className="space-y-6">
+                                    {error && (
+                                        <div className="bg-red-100 border border-red-200 text-red-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest">
+                                            {error}
+                                        </div>
+                                    )}
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-4">Camera Label</label>
                                         <input 
@@ -349,16 +347,8 @@ export const RemoteCameraMonitor = () => {
                                         />
                                         <div className="flex items-center gap-2 mt-2 ml-4">
                                             <Info size={12} className="text-orange-500" />
-                                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">This URL is only used by the local Relay PC</span>
+                                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Proxied via main backend securely</span>
                                         </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-4">Host Node ID</label>
-                                        <input 
-                                            value={newCamHost} onChange={(e) => setNewCamHost(e.target.value)}
-                                            placeholder="Enter the ID of the PC that will act as the relay"
-                                            className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-zinc-900 placeholder:text-zinc-300 focus:ring-2 ring-orange-500/20 focus:border-orange-500 transition-all outline-none"
-                                        />
                                     </div>
                                 </div>
 
@@ -371,9 +361,10 @@ export const RemoteCameraMonitor = () => {
                                     </button>
                                     <button 
                                         onClick={handleAddCamera}
-                                        className="flex-2 px-12 py-4 bg-zinc-900 text-white rounded-full text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl"
+                                        disabled={isSubmitting}
+                                        className="flex-2 px-12 py-4 bg-zinc-900 text-white rounded-full text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl disabled:opacity-50"
                                     >
-                                        Establish Gateway
+                                        {isSubmitting ? 'Adding...' : 'Establish Gateway'}
                                     </button>
                                 </div>
                             </div>

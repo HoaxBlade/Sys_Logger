@@ -13,4 +13,5 @@ redis
 gunicorn
 eventlet
 simple-websocket
-pyinstaller
+pyinstaller
+opencv-python

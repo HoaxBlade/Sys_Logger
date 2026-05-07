@@ -21,6 +21,10 @@ import shutil
 import psycopg2
 from psycopg2.extras import RealDictCursor
 try:
+    import cv2
+except ImportError:
+    cv2 = None
+try:
     import redis
 except ImportError:
     redis = None
@@ -754,6 +758,156 @@ def create_user(current_user):
             'email': email,
             'role': role
         }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# --- CAMERA MANAGEMENT ROUTES ---
+
+@app.route('/api/cameras', methods=['GET'])
+@token_required
+def get_cameras(current_user):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Admin/Root can see all cameras in their org
+        if current_user['role'] == 'ROOT':
+            cur.execute("SELECT * FROM cameras ORDER BY camera_id DESC")
+        else:
+            cur.execute("SELECT * FROM cameras WHERE org_id = %s ORDER BY camera_id DESC", (current_user['org_id'],))
+            
+        cameras = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify(cameras)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras', methods=['POST'])
+@token_required
+def add_camera(current_user):
+    if current_user['role'] not in ['ROOT', 'ADMIN']:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    data = request.get_json()
+    name = data.get('name')
+    rtsp_url = data.get('rtsp_url')
+    org_id = current_user['org_id']
+    
+    if not name or not rtsp_url:
+        return jsonify({'error': 'Name and RTSP URL are required'}), 400
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check quota
+        cur.execute("SELECT c.camera_limit FROM pricing_plans c JOIN organizations o ON c.slug = lower(o.tier) WHERE o.org_id = %s", (org_id,))
+        plan = cur.fetchone()
+        
+        camera_limit = plan['camera_limit'] if plan else 0
+        
+        if current_user['role'] != 'ROOT':
+            cur.execute("SELECT COUNT(*) FROM cameras WHERE org_id = %s", (org_id,))
+            current_cameras = cur.fetchone()['count']
+            
+            if current_cameras >= camera_limit:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'camera_limit_reached', 'message': f'Your current tier allows up to {camera_limit} cameras. Please upgrade to add more.'}), 403
+                
+        cur.execute(
+            "INSERT INTO cameras (org_id, name, rtsp_url, status) VALUES (%s, %s, %s, %s) RETURNING *",
+            (org_id, name, rtsp_url, 'offline')
+        )
+        new_camera = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify(new_camera), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+@token_required
+def delete_camera(current_user, camera_id):
+    if current_user['role'] not in ['ROOT', 'ADMIN']:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        if current_user['role'] == 'ROOT':
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s", (camera_id,))
+        else:
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user['org_id']))
+            
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        if deleted == 0:
+            return jsonify({'error': 'Camera not found or unauthorized'}), 404
+            
+        return jsonify({'message': 'Camera deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def generate_camera_stream(rtsp_url):
+    if not cv2:
+        yield (b'--frame\r\n' b'Content-Type: text/plain\r\n\r\nOpenCV not installed\r\n')
+        return
+        
+    cap = cv2.VideoCapture(rtsp_url)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+            
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+               
+    cap.release()
+
+@app.route('/api/cameras/<int:camera_id>/stream', methods=['GET'])
+def camera_stream(camera_id):
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'message': 'Token is missing!'}), 401
+    
+    try:
+        try:
+            current_user = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        except Exception:
+            current_user = jwt.decode(token, 'sys-logger-super-secret-key', algorithms=["HS256"])
+    except Exception as e:
+        return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Verify camera belongs to user's org or user is ROOT
+        if current_user.get('role') == 'ROOT':
+            cur.execute("SELECT rtsp_url FROM cameras WHERE camera_id = %s", (camera_id,))
+        else:
+            cur.execute("SELECT rtsp_url FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user.get('org_id')))
+        
+        camera = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not camera:
+            return jsonify({'error': 'Camera not found or unauthorized'}), 404
+            
+        return app.response_class(generate_camera_stream(camera['rtsp_url']), mimetype='multipart/x-mixed-replace; boundary=frame')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
