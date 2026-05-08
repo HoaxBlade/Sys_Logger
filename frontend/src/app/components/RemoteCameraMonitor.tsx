@@ -24,6 +24,7 @@ export const RemoteCameraMonitor = () => {
     // Camera Add Form State
     const [newCamName, setNewCamName] = useState('');
     const [newCamUrl, setNewCamUrl] = useState('');
+    const [newCamHost, setNewCamHost] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -50,7 +51,10 @@ export const RemoteCameraMonitor = () => {
     };
 
     const handleAddCamera = async () => {
-        if (!newCamName || !newCamUrl) return;
+        if (!newCamName || !newCamUrl || !newCamHost) {
+            setError('Please fill in all fields including Host Node ID');
+            return;
+        }
         setError(null);
         setIsSubmitting(true);
         try {
@@ -63,13 +67,14 @@ export const RemoteCameraMonitor = () => {
                 body: JSON.stringify({
                     name: newCamName,
                     rtsp_url: newCamUrl,
+                    host_unit_id: newCamHost
                 })
             });
             const data = await response.json();
             if (response.ok) {
                 setIsAddModalOpen(false);
                 fetchCameras();
-                setNewCamName(''); setNewCamUrl('');
+                setNewCamName(''); setNewCamUrl(''); setNewCamHost('');
             } else {
                 setError(data.message || data.error || 'Failed to add camera');
             }
@@ -348,6 +353,18 @@ export const RemoteCameraMonitor = () => {
                                         <div className="flex items-center gap-2 mt-2 ml-4">
                                             <Info size={12} className="text-orange-500" />
                                             <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Proxied via main backend securely</span>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-4">Host Node ID</label>
+                                        <input 
+                                            value={newCamHost} onChange={(e) => setNewCamHost(e.target.value)}
+                                            placeholder="e.g. 5902"
+                                            className="w-full px-6 py-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-zinc-900 placeholder:text-zinc-300 focus:ring-2 ring-orange-500/20 focus:border-orange-500 transition-all outline-none"
+                                        />
+                                        <div className="flex items-center gap-2 mt-2 ml-4">
+                                            <Info size={12} className="text-orange-500" />
+                                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">The ID of the local PC relaying this camera</span>
                                         </div>
                                     </div>
                                 </div>
