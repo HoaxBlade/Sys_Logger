@@ -856,26 +856,39 @@ def delete_camera(current_user, camera_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def generate_camera_stream(rtsp_url):
-    if not cv2:
-        yield (b'--frame\r\n' b'Content-Type: text/plain\r\n\r\nOpenCV not installed\r\n')
+def generate_camera_stream(cap, is_mock=False):
+    import eventlet
+    from eventlet import tpool
+    
+    if is_mock:
+        import numpy as np
+        while True:
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "MOCK STREAM", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
+            cv2.putText(frame, str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            eventlet.sleep(0.033)
         return
-        
-    cap = cv2.VideoCapture(rtsp_url)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            continue
-            
-        frame_bytes = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-               
-    cap.release()
+
+    try:
+        while cap.isOpened():
+            ret, frame = tpool.execute(cap.read)
+            if not ret:
+                break
+                
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+                
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                   
+            eventlet.sleep(0.01)
+    finally:
+        if cap:
+            cap.release()
 
 @app.route('/api/cameras/<int:camera_id>/stream', methods=['GET'])
 def camera_stream(camera_id):
@@ -907,7 +920,23 @@ def camera_stream(camera_id):
         if not camera:
             return jsonify({'error': 'Camera not found or unauthorized'}), 404
             
-        return app.response_class(generate_camera_stream(camera['rtsp_url']), mimetype='multipart/x-mixed-replace; boundary=frame')
+        rtsp_url = camera['rtsp_url']
+        
+        if rtsp_url.lower() == 'mock':
+            return app.response_class(generate_camera_stream(None, is_mock=True), mimetype='multipart/x-mixed-replace; boundary=frame')
+            
+        if not cv2:
+            return jsonify({'error': 'OpenCV not installed'}), 500
+
+        import eventlet
+        from eventlet import tpool
+        cap = tpool.execute(cv2.VideoCapture, rtsp_url)
+        
+        if not cap.isOpened():
+            cap.release()
+            return jsonify({'error': 'Stream offline or unreachable'}), 502
+            
+        return app.response_class(generate_camera_stream(cap, is_mock=False), mimetype='multipart/x-mixed-replace; boundary=frame')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
