@@ -288,9 +288,6 @@ export const RemoteCameraMonitor = () => {
                                             <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{quality === 'HD' ? 'Bandwidth: ~1.5 Mbps' : 'Bandwidth: ~200 Kbps'}</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-white/10 italic text-[10px]">
-                                        <Shield size={12} /> Proxied via Backend Securely
-                                    </div>
                                 </div>
                             </div>
                         ) : (
