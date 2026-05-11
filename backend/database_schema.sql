@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS cameras (
     org_id INTEGER NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     rtsp_url VARCHAR(512) NOT NULL,
+    host_unit_id VARCHAR(255),
     status VARCHAR(50) DEFAULT 'offline',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_checked TIMESTAMP WITH TIME ZONE DEFAULT NOW()

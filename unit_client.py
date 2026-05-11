@@ -105,9 +105,11 @@ class UnitClient:
 
         # SocketIO Client for Live Control
         self.sio = socketio.Client()
-        self.setup_sio_handlers()
+        self.sio = socketio.Client()
         self.data_queue = queue.Queue()
         self.last_camera_time = 0
+        self.cctv_streams = {} # { camera_id: {'running': True, 'thread': Thread} }
+        self.setup_sio_handlers()
         
         # Load existing cache into queue
         cached_data = self.load_cache()
@@ -495,6 +497,31 @@ class UnitClient:
                 print("⏹ Live stream stopped")
             self.is_streaming = False
 
+        @self.sio.on('start_cctv_stream')
+        def on_start_cctv_stream(data):
+            camera_id = data.get('camera_id')
+            rtsp_url = data.get('rtsp_url')
+            if not camera_id or not rtsp_url: return
+            
+            if not self.silent:
+                print(f"▶ Proxying CCTV camera {camera_id}")
+            
+            if camera_id in self.cctv_streams:
+                self.cctv_streams[camera_id]['running'] = False
+                
+            self.cctv_streams[camera_id] = {'running': True}
+            t = threading.Thread(target=self.cctv_stream_loop, args=(camera_id, rtsp_url), daemon=True)
+            self.cctv_streams[camera_id]['thread'] = t
+            t.start()
+
+        @self.sio.on('stop_cctv_stream')
+        def on_stop_cctv_stream(data):
+            camera_id = data.get('camera_id')
+            if camera_id in self.cctv_streams:
+                if not self.silent:
+                    print(f"⏹ Stopping CCTV camera proxy {camera_id}")
+                self.cctv_streams[camera_id]['running'] = False
+
     def start_live_stream(self):
         if self.is_streaming:
             return
@@ -534,6 +561,35 @@ class UnitClient:
         finally:
             cap.release()
             self.is_streaming = False
+
+    def cctv_stream_loop(self, camera_id, rtsp_url):
+        cap = cv2.VideoCapture(rtsp_url)
+        if not cap.isOpened():
+            if not self.silent:
+                print(f"ERROR: Cannot connect to CCTV RTSP {rtsp_url}")
+            return
+
+        try:
+            while self.cctv_streams.get(camera_id, {}).get('running') and self.running:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Compress and Base64 encode
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                base64_frame = base64.b64encode(buffer).decode('utf-8')
+
+                self.sio.emit('cctv_frame', {
+                    'camera_id': camera_id,
+                    'frame': base64_frame
+                })
+                
+                # ~15 FPS to save bandwidth
+                time.sleep(0.06)
+        finally:
+            cap.release()
+            if camera_id in self.cctv_streams:
+                del self.cctv_streams[camera_id]
 
     def connect_sio(self):
         while self.running:

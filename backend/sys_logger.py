@@ -193,6 +193,24 @@ elif USE_REDIS and not redis:
     print("Redis enabled but 'redis' library not installed. Falling back to in-memory storage.")
     USE_REDIS = False
 
+# --- CCTV RELAY REGISTRY & SOCKETIO ---
+camera_frames = {}
+
+@socketio.on('unit_login')
+def handle_unit_login(data):
+    from flask_socketio import join_room
+    unit_id = data.get('unit_id')
+    if unit_id:
+        join_room(str(unit_id))
+        print(f"Unit {unit_id} connected to relay room.")
+
+@socketio.on('cctv_frame')
+def handle_cctv_frame(data):
+    camera_id = data.get('camera_id')
+    frame = data.get('frame')
+    if camera_id and frame:
+        camera_frames[str(camera_id)] = frame
+
 # --- AUTHENTICATION ROUTES ---
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -792,6 +810,7 @@ def add_camera(current_user):
     data = request.get_json()
     name = data.get('name')
     rtsp_url = data.get('rtsp_url')
+    host_unit_id = data.get('host_unit_id')
     org_id = current_user['org_id']
     
     if not name or not rtsp_url:
@@ -817,8 +836,8 @@ def add_camera(current_user):
                 return jsonify({'error': 'camera_limit_reached', 'message': f'Your current tier allows up to {camera_limit} cameras. Please upgrade to add more.'}), 403
                 
         cur.execute(
-            "INSERT INTO cameras (org_id, name, rtsp_url, status) VALUES (%s, %s, %s, %s) RETURNING *",
-            (org_id, name, rtsp_url, 'offline')
+            "INSERT INTO cameras (org_id, name, rtsp_url, host_unit_id, status) VALUES (%s, %s, %s, %s, %s) RETURNING *",
+            (org_id, name, rtsp_url, host_unit_id, 'offline')
         )
         new_camera = cur.fetchone()
         conn.commit()
@@ -909,9 +928,9 @@ def camera_stream(camera_id):
         cur = conn.cursor(cursor_factory=RealDictCursor)
         # Verify camera belongs to user's org or user is ROOT
         if current_user.get('role') == 'ROOT':
-            cur.execute("SELECT rtsp_url FROM cameras WHERE camera_id = %s", (camera_id,))
+            cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
         else:
-            cur.execute("SELECT rtsp_url FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user.get('org_id')))
+            cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user.get('org_id')))
         
         camera = cur.fetchone()
         cur.close()
@@ -921,22 +940,53 @@ def camera_stream(camera_id):
             return jsonify({'error': 'Camera not found or unauthorized'}), 404
             
         rtsp_url = camera['rtsp_url']
+        host_unit_id = camera.get('host_unit_id')
         
         if rtsp_url.lower() == 'mock':
             return app.response_class(generate_camera_stream(None, is_mock=True), mimetype='multipart/x-mixed-replace; boundary=frame')
             
-        if not cv2:
-            return jsonify({'error': 'OpenCV not installed'}), 500
-
-        import eventlet
-        from eventlet import tpool
-        cap = tpool.execute(cv2.VideoCapture, rtsp_url)
-        
-        if not cap.isOpened():
-            cap.release()
-            return jsonify({'error': 'Stream offline or unreachable'}), 502
+        if host_unit_id:
+            import eventlet
+            from flask_socketio import emit
+            import base64
             
-        return app.response_class(generate_camera_stream(cap, is_mock=False), mimetype='multipart/x-mixed-replace; boundary=frame')
+            # Ask unit to start stream
+            socketio.emit('start_cctv_stream', {'camera_id': camera_id, 'rtsp_url': rtsp_url}, room=str(host_unit_id))
+            
+            def stream_from_host():
+                try:
+                    while True:
+                        frame_b64 = camera_frames.get(str(camera_id))
+                        if frame_b64:
+                            # Strip "data:image/jpeg;base64," if present
+                            if ',' in frame_b64:
+                                frame_b64 = frame_b64.split(',')[1]
+                            frame_bytes = base64.b64decode(frame_b64)
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                        eventlet.sleep(0.05) # ~20 FPS limit
+                finally:
+                    # Ask unit to stop stream
+                    socketio.emit('stop_cctv_stream', {'camera_id': camera_id}, room=str(host_unit_id))
+                    if str(camera_id) in camera_frames:
+                        del camera_frames[str(camera_id)]
+                        
+            return app.response_class(stream_from_host(), mimetype='multipart/x-mixed-replace; boundary=frame')
+            
+        else:
+            # Fallback to direct cloud connection
+            if not cv2:
+                return jsonify({'error': 'OpenCV not installed'}), 500
+
+            import eventlet
+            from eventlet import tpool
+            cap = tpool.execute(cv2.VideoCapture, rtsp_url)
+            
+            if not cap.isOpened():
+                cap.release()
+                return jsonify({'error': 'Stream offline or unreachable'}), 502
+                
+            return app.response_class(generate_camera_stream(cap, is_mock=False), mimetype='multipart/x-mixed-replace; boundary=frame')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
