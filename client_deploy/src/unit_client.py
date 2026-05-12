@@ -153,6 +153,7 @@ class UnitClient:
         self.last_camera_time = 0
         self.is_streaming = False
         self.active_relays = {} # camera_id -> RemoteCameraRelay instance
+        self.camera_lock = threading.Lock() # Fail-safe against overlapping photo threads
         
         # SocketIO Setup
         if HAS_SOCKETIO:
@@ -558,10 +559,9 @@ class UnitClient:
                     # Strip any trailing slashes from server_url
                     clean_url = self.server_url.rstrip('/')
                     self.sio.connect(clean_url)
-                break
             except Exception as e:
                 print(f"DEBUG: SocketIO connection failed: {e}", flush=True)
-                time.sleep(5)
+            time.sleep(10) # Constantly monitor connection status and heal if dropped
 
     def start_live_stream(self):
         if self.is_streaming or not HAS_CV2:
@@ -597,21 +597,29 @@ class UnitClient:
         """Capture a single photo and send it as a traditional audit record"""
         if not HAS_CV2: return
         
-        cap = cv2.VideoCapture(0)
+        # FAIL-SAFE LOCK: Block overlapping requests that spawn zombie threads if OpenCV hangs
+        if not self.camera_lock.acquire(blocking=False):
+            # print("DEBUG: Another photo thread holds camera lock, skipping current cycle.")
+            return
+            
         try:
-            ret, frame = cap.read()
-            if ret:
-                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                base64_photo = base64.b64encode(buffer).decode('utf-8')
-                
-                payload = {
-                    'unit_id': self.unit_id,
-                    'photo_type': photo_type,
-                    'image': base64_photo
-                }
-                requests.post(f"{self.server_url}/api/upload_photo", json=payload, timeout=15)
+            cap = cv2.VideoCapture(0)
+            try:
+                ret, frame = cap.read()
+                if ret:
+                    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    base64_photo = base64.b64encode(buffer).decode('utf-8')
+                    
+                    payload = {
+                        'unit_id': self.unit_id,
+                        'photo_type': photo_type,
+                        'image': base64_photo
+                    }
+                    requests.post(f"{self.server_url}/api/upload_photo", json=payload, timeout=15)
+            finally:
+                cap.release()
         finally:
-            cap.release()
+            self.camera_lock.release() # Always release control so next interval can try again
 
     def run(self):
         print(f"Unit client loop started", flush=True)
