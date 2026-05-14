@@ -905,9 +905,9 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                     </div>
 
                     {/* Action Buttons & Filters */}
-                    <div className="px-4 lg:px-5 flex flex-col gap-4 pb-2">
+                    <div className="px-4 lg:px-5 flex flex-col gap-6 pb-2">
                         {/* Quick Filters */}
-                        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2 px-1">
+                        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-4 px-1 min-h-[48px]">
                             {(['all', 'connected', 'warning', 'critical', 'disconnected'] as const).map((status) => (
                                 <button
                                     key={status}
