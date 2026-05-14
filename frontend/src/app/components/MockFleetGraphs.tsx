@@ -92,12 +92,14 @@ const ChartCard = ({ title, label, icon, color, data, unit = "%" }: { title: str
 }
 
 export default function MockFleetGraphs() {
+  const [mounted, setMounted] = useState(false)
   const [cpuData, setCpuData] = useState(generateInitialData())
   const [ramData, setRamData] = useState(generateInitialData())
   const [gpuData, setGpuData] = useState(generateInitialData())
   const [netData, setNetData] = useState(generateInitialData())
 
   useEffect(() => {
+    setMounted(true)
     const updateData = (prev: any[]) => {
       const lastValue = prev[prev.length - 1].y
       // Increased variance and added occasional "spikes" for more abrupt motion
@@ -117,6 +119,8 @@ export default function MockFleetGraphs() {
 
     return () => clearInterval(interval)
   }, [])
+
+  if (!mounted) return <div className="w-full h-full p-6 animate-pulse bg-zinc-50/50 rounded-3xl" />
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full h-full p-6">
