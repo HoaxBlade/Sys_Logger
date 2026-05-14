@@ -169,7 +169,7 @@ export default function RegisterPage() {
                                     Free-Tier Initialization
                                 </p>
                                 <p className="text-[10px] text-zinc-500 font-medium">
-                                    All new hubs start on the Free tier (1 node). Upgrade to Pro (5) or Business (10) anytime from your dashboard.
+                                    All new hubs start on the Free tier (10 nodes). Upgrade to Pro (5) or Business (30) anytime from your dashboard.
                                 </p>
                             </div>
                         </div>

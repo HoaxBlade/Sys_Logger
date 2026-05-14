@@ -63,7 +63,7 @@ Caddy is the easiest way to get permanent, free HTTPS for your backend.
    Let's Encrypt and handle all HTTPS traffic.
 
 -----------------------------------------------------------------------------
-PHASE 5: DATABASE MIGRATION
+PHASE 5: DATABASE  MIGRATION
 -----------------------------------------------------------------------------
 1. Dump your current PostgreSQL data from the Bare Metal PC:
    - pg_dump -U postgres sys_logger > backup.sql

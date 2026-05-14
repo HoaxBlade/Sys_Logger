@@ -21,6 +21,10 @@ import shutil
 import psycopg2
 from psycopg2.extras import RealDictCursor
 try:
+    import cv2
+except ImportError:
+    cv2 = None
+try:
     import redis
 except ImportError:
     redis = None
@@ -29,6 +33,7 @@ from flask import Flask, jsonify, request, make_response, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 from werkzeug.serving import make_server
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import jwt
 from functools import wraps
@@ -64,6 +69,7 @@ razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 # Public URL for the agent to connect back to (useful for hosting/proxies)
 # Defaults to request host during registration/installer generation
 PUBLIC_SERVER_URL = os.getenv('PUBLIC_SERVER_URL', '')
+CREATOR_EMAIL = os.getenv('CREATOR_EMAIL', 'ayush@syslogger.com')
 
 # DB Config
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -100,10 +106,17 @@ else:
     allowed_origins = [o.strip() for o in cors_origins_env.split(',') if o.strip()]
     CORS(app, origins=allowed_origins, supports_credentials=True)
 
+# Camera Storage Config
+PHOTO_UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'photos')
+if not os.path.exists(PHOTO_UPLOAD_FOLDER):
+    os.makedirs(PHOTO_UPLOAD_FOLDER)
+
+app.config['PHOTO_UPLOAD_FOLDER'] = PHOTO_UPLOAD_FOLDER
+
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'sys-logger-super-secret-key-32-chars-long-for-jwt')
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 # Auth Decorator
 def token_required(f):
@@ -180,6 +193,24 @@ elif USE_REDIS and not redis:
     print("Redis enabled but 'redis' library not installed. Falling back to in-memory storage.")
     USE_REDIS = False
 
+# --- CCTV RELAY REGISTRY & SOCKETIO ---
+camera_frames = {}
+
+@socketio.on('unit_login')
+def handle_unit_login(data):
+    from flask_socketio import join_room
+    unit_id = data.get('unit_id')
+    if unit_id:
+        join_room(str(unit_id))
+        print(f"Unit {unit_id} connected to relay room.")
+
+@socketio.on('cctv_frame')
+def handle_cctv_frame(data):
+    camera_id = data.get('camera_id')
+    frame = data.get('frame')
+    if camera_id and frame:
+        camera_frames[str(camera_id)] = frame
+
 # --- AUTHENTICATION ROUTES ---
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -233,11 +264,16 @@ def register():
         )
         org_id = cur.fetchone()['org_id']
         
-        # 3. Create User
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         cur.execute(
-            "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING user_id",
             (username, email, password_hash, 'ADMIN', org_id)
+        )
+        user_id = cur.fetchone()['user_id']
+        
+        # 4. Create Membership (New Multi-tenant Architecture)
+        cur.execute(
+            "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+            (user_id, org_id, 'ADMIN', True)
         )
         
         conn.commit()
@@ -265,27 +301,37 @@ def download_installer(current_user):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # 1. Check Tier Limits - now including tier and contact_email to avoid KeyError
-        cur.execute("SELECT node_limit, tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
+        # 1. Check Tier Limits - now including extra_slots for Pay-as-you-grow feature
+        cur.execute("SELECT node_limit, extra_slots, tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
         org = cur.fetchone()
         if not org:
             return jsonify({'message': 'Organization not found!'}), 404
             
-        # Use ::text cast because org_id is VARCHAR in the systems table
+        # Use ::text because org_id is VARCHAR in the systems table
         cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
         current_count = cur.fetchone()['count']
         
+        # Calculate TOTAL dynamic limit
+        base_limit = org['node_limit'] or 1
+        extra_slots = org.get('extra_slots') or 0
+        total_limit = base_limit + extra_slots
+        
         if current_user.get('role') != 'ROOT':
-            # 1a. Per-Organization Limit
-            if current_count >= org['node_limit']:
+            # 1a. Per-Organization Limit Check
+            if current_count >= total_limit:
                 return jsonify({
                     'error': 'limit_reached',
                     'current_count': current_count,
-                    'limit': org['node_limit'],
-                    'message': f"Organization limit reached! Your tier allows {org['node_limit']} nodes. Upgrade to add more monitors."
+                    'limit': total_limit,
+                    'message': f"Organization limit reached! Your tier allows {total_limit} nodes. Upgrade to add more monitors."
                 }), 403
             
-            # 1b. Global Free Tier Check (Prevent multi-org free node loophole)
+        # 1b. Global Free Tier Check (Prevent multi-org free node loophole)
+        # Fetching org again for the specific loophole check (deprecated soon)
+        cur.execute("SELECT tier, contact_email FROM organizations WHERE org_id = %s", (org_id,))
+        org = cur.fetchone()
+
+        if current_user.get('role') != 'ROOT':
             if org['tier'].upper() == 'INDIVIDUAL' or org['tier'].upper() == 'FREE':
                 contact_email = org.get('contact_email') or current_user.get('email')
                 if contact_email:
@@ -464,12 +510,21 @@ def generate_installer_link(current_user):
     """Generate a short-lived (24h) signed download link"""
     data = request.get_json()
     comp_id = data.get('comp_id')
-    
     if not comp_id:
-        return jsonify({'message': 'Component ID is required!'}), 400
+        return jsonify({'message': 'comp_id is required'}), 400
         
     org_id = current_user.get('org_id')
     
+    # Check Tier Limits
+    is_reached, current_count, limit = UnitStore.check_org_limit(org_id, current_user)
+    if is_reached:
+        return jsonify({
+            'error': 'limit_reached',
+            'current_count': current_count,
+            'limit': limit,
+            'message': f"Organization limit reached! Your tier allows {limit} nodes. Upgrade to add more monitors."
+        }), 403
+
     token = jwt.encode({
         'org_id': org_id,
         'comp_id': comp_id,
@@ -492,44 +547,138 @@ def login():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-        SELECT u.*, o.tier 
-        FROM users u 
-        JOIN organizations o ON u.org_id = o.org_id 
-        WHERE u.email = %s
+        SELECT * FROM users WHERE email = %s
     """, (auth.get('email', '').lower(),))
     user = cur.fetchone()
+    
+    if not user or not bcrypt.checkpw(auth.get('password').encode('utf-8'), user['password_hash'].encode('utf-8')):
+        cur.close()
+        conn.close()
+        return make_response('Could not verify', 401)
+        
+    # THE CREATOR RULE: Hard-code ROOT status for the project creator
+    if user['email'].lower() == CREATOR_EMAIL.lower():
+        user['role'] = 'ROOT'
+        
+    # 2. Fetch all memberships (Workspaces)
+    cur.execute("""
+        SELECT m.org_id, m.role, o.name, o.slug, o.tier, m.is_default, o.node_limit, o.extra_slots
+        FROM memberships m
+        JOIN organizations o ON m.org_id = o.org_id
+        WHERE m.user_id = %s
+    """, (user['user_id'],))
+    
+    workspaces = cur.fetchall()
     cur.close()
     conn.close()
     
-    if not user:
-        return make_response('Could not verify', 401)
+    if not workspaces:
+        # Fallback if no membership exists (shouldn't happen with migration)
+        # But for new users we'll need a flow. For now, block.
+        return jsonify({'error': 'User has no organization memberships'}), 403
         
-    if bcrypt.checkpw(auth.get('password').encode('utf-8'), user['password_hash'].encode('utf-8')):
-        token = jwt.encode({
+    # 3. Determine active workspace (default or first)
+    active_ws = next((w for w in workspaces if w['is_default']), workspaces[0])
+    
+    # Force 'ROOT' role if creator
+    role = 'ROOT' if user['email'].lower() == CREATOR_EMAIL.lower() else active_ws['role']
+    
+    token = jwt.encode({
+        'user_id': user['user_id'],
+        'email': user['email'],
+        'role': role,
+        'org_id': active_ws['org_id'],
+        'tier': active_ws['tier'],
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+    
+    return jsonify({
+        'token': token,
+        'user': {
             'user_id': user['user_id'],
             'email': user['email'],
-            'role': user['role'],
-            'org_id': user['org_id'],
-            'tier': user['tier'],
-            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-        }, app.config['SECRET_KEY'], algorithm="HS256")
+            'role': role,
+            'org_id': active_ws['org_id'],
+            'tier': active_ws['tier'],
+            'node_limit': active_ws.get('node_limit', 0),
+            'extra_slots': active_ws.get('extra_slots', 0)
+        },
+        'workspaces': workspaces
+    })
+
+
+@app.route('/api/auth/switch-org', methods=['POST'])
+@token_required
+def switch_org(current_user):
+    data = request.get_json()
+    new_org_id = data.get('org_id')
+    
+    if not new_org_id:
+        return jsonify({'error': 'Organization ID is required'}), 400
         
-        return jsonify({
-            'token': token,
-            'user': {
-                'email': user['email'],
-                'role': user['role'],
-                'org_id': user['org_id'],
-                'tier': user['tier']
-            }
-        })
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    cur.execute("""
+        SELECT m.org_id, m.role, o.name, o.slug, o.tier, o.node_limit, o.extra_slots
+        FROM memberships m
+        JOIN organizations o ON m.org_id = o.org_id
+        WHERE m.user_id = %s AND m.org_id = %s
+    """, (current_user['user_id'], new_org_id))
+    
+    membership = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not membership:
+        return jsonify({'error': 'You do not have access to this organization'}), 403
         
-    return make_response('Could not verify', 401)
+    # Issue a NEW token for the new organization context
+    token = jwt.encode({
+        'user_id': current_user['user_id'],
+        'email': current_user['email'],
+        'role': membership['role'],
+        'org_id': new_org_id,
+        'tier': membership['tier'],
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+    
+    return jsonify({
+        'token': token,
+        'org_id': new_org_id,
+        'org_name': membership['name'],
+        'role': membership['role'],
+        'tier': membership['tier']
+    })
 
 @app.route('/api/auth/me', methods=['GET'])
 @token_required
 def get_me(current_user):
-    return jsonify(current_user)
+    """Fetch fresh user/org data from DB to reflect latest limits"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # 1. Fetch Latest Org Data
+        cur.execute("""
+            SELECT o.node_limit, o.extra_slots, o.tier, o.name as org_name, m.role
+            FROM memberships m
+            JOIN organizations o ON m.org_id = o.org_id
+            WHERE m.user_id = %s AND m.org_id = %s
+        """, (current_user['user_id'], current_user['org_id']))
+        
+        fresh_data = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if fresh_data:
+            # Merge fresh data into current_user info
+            current_user.update(fresh_data)
+            
+        return jsonify(current_user)
+    except Exception as e:
+        print(f"Error in /api/auth/me: {e}")
+        return jsonify(current_user) # Fallback to token data
 
 @app.route('/api/users', methods=['GET'])
 @token_required
@@ -609,6 +758,13 @@ def create_user(current_user):
             (username, email, password_hash, role, org_id)
         )
         new_user = cur.fetchone()
+        
+        # Create Membership Record
+        cur.execute(
+            "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+            (new_user['user_id'], org_id, role, True)
+        )
+
         conn.commit()
         cur.close()
         conn.close()
@@ -620,6 +776,217 @@ def create_user(current_user):
             'email': email,
             'role': role
         }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# --- CAMERA MANAGEMENT ROUTES ---
+
+@app.route('/api/cameras', methods=['GET'])
+@token_required
+def get_cameras(current_user):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Admin/Root can see all cameras in their org
+        if current_user['role'] == 'ROOT':
+            cur.execute("SELECT * FROM cameras ORDER BY camera_id DESC")
+        else:
+            cur.execute("SELECT * FROM cameras WHERE org_id = %s ORDER BY camera_id DESC", (current_user['org_id'],))
+            
+        cameras = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify(cameras)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras', methods=['POST'])
+@token_required
+def add_camera(current_user):
+    if current_user['role'] not in ['ROOT', 'ADMIN']:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    data = request.get_json()
+    name = data.get('name')
+    rtsp_url = data.get('rtsp_url')
+    host_unit_id = data.get('host_unit_id')
+    org_id = current_user['org_id']
+    
+    if not name or not rtsp_url:
+        return jsonify({'error': 'Name and RTSP URL are required'}), 400
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check quota
+        cur.execute("SELECT c.camera_limit FROM pricing_plans c JOIN organizations o ON c.slug = lower(o.tier) WHERE o.org_id = %s", (org_id,))
+        plan = cur.fetchone()
+        
+        camera_limit = plan['camera_limit'] if plan else 0
+        
+        if current_user['role'] != 'ROOT':
+            cur.execute("SELECT COUNT(*) FROM cameras WHERE org_id = %s", (org_id,))
+            current_cameras = cur.fetchone()['count']
+            
+            if current_cameras >= camera_limit:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'camera_limit_reached', 'message': f'Your current tier allows up to {camera_limit} cameras. Please upgrade to add more.'}), 403
+                
+        cur.execute(
+            "INSERT INTO cameras (org_id, name, rtsp_url, host_unit_id, status) VALUES (%s, %s, %s, %s, %s) RETURNING *",
+            (org_id, name, rtsp_url, host_unit_id, 'offline')
+        )
+        new_camera = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify(new_camera), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+@token_required
+def delete_camera(current_user, camera_id):
+    if current_user['role'] not in ['ROOT', 'ADMIN']:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        if current_user['role'] == 'ROOT':
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s", (camera_id,))
+        else:
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user['org_id']))
+            
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        if deleted == 0:
+            return jsonify({'error': 'Camera not found or unauthorized'}), 404
+            
+        return jsonify({'message': 'Camera deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def generate_camera_stream(cap, is_mock=False):
+    import eventlet
+    from eventlet import tpool
+    
+    if is_mock:
+        import numpy as np
+        while True:
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "MOCK STREAM", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
+            cv2.putText(frame, str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            eventlet.sleep(0.033)
+        return
+
+    try:
+        while cap.isOpened():
+            ret, frame = tpool.execute(cap.read)
+            if not ret:
+                break
+                
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+                
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                   
+            eventlet.sleep(0.01)
+    finally:
+        if cap:
+            cap.release()
+
+@app.route('/api/cameras/<int:camera_id>/stream', methods=['GET'])
+def camera_stream(camera_id):
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'message': 'Token is missing!'}), 401
+    
+    try:
+        try:
+            current_user = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        except Exception:
+            current_user = jwt.decode(token, 'sys-logger-super-secret-key', algorithms=["HS256"])
+    except Exception as e:
+        return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Verify camera belongs to user's org or user is ROOT
+        if current_user.get('role') == 'ROOT':
+            cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
+        else:
+            cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s AND org_id = %s", (camera_id, current_user.get('org_id')))
+        
+        camera = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not camera:
+            return jsonify({'error': 'Camera not found or unauthorized'}), 404
+            
+        rtsp_url = camera['rtsp_url']
+        host_unit_id = camera.get('host_unit_id')
+        
+        if rtsp_url.lower() == 'mock':
+            return app.response_class(generate_camera_stream(None, is_mock=True), mimetype='multipart/x-mixed-replace; boundary=frame')
+            
+        if host_unit_id:
+            import eventlet
+            from flask_socketio import emit
+            import base64
+            
+            # Ask unit to start stream
+            socketio.emit('start_cctv_stream', {'camera_id': camera_id, 'rtsp_url': rtsp_url}, room=str(host_unit_id))
+            
+            def stream_from_host():
+                try:
+                    while True:
+                        frame_b64 = camera_frames.get(str(camera_id))
+                        if frame_b64:
+                            # Strip "data:image/jpeg;base64," if present
+                            if ',' in frame_b64:
+                                frame_b64 = frame_b64.split(',')[1]
+                            frame_bytes = base64.b64decode(frame_b64)
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                        eventlet.sleep(0.05) # ~20 FPS limit
+                finally:
+                    # Ask unit to stop stream
+                    socketio.emit('stop_cctv_stream', {'camera_id': camera_id}, room=str(host_unit_id))
+                    if str(camera_id) in camera_frames:
+                        del camera_frames[str(camera_id)]
+                        
+            return app.response_class(stream_from_host(), mimetype='multipart/x-mixed-replace; boundary=frame')
+            
+        else:
+            # Fallback to direct cloud connection
+            if not cv2:
+                return jsonify({'error': 'OpenCV not installed'}), 500
+
+            import eventlet
+            from eventlet import tpool
+            cap = tpool.execute(cv2.VideoCapture, rtsp_url)
+            
+            if not cap.isOpened():
+                cap.release()
+                return jsonify({'error': 'Stream offline or unreachable'}), 502
+                
+            return app.response_class(generate_camera_stream(cap, is_mock=False), mimetype='multipart/x-mixed-replace; boundary=frame')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -657,7 +1024,7 @@ def ensure_schema_ready():
         
         # 2. Pre-create current and next month partitions
         cur.execute("SELECT create_system_metrics_partition(CURRENT_DATE)")
-        cur.execute("SELECT create_system_metrics_partition(CURRENT_DATE + INTERVAL '1 month')")
+        cur.execute("SELECT create_system_metrics_partition((CURRENT_DATE + INTERVAL '1 month')::DATE)")
         
         conn.commit()
         cur.close()
@@ -671,7 +1038,37 @@ ensure_schema_ready()
 
 class UnitStore:
     """Store for units and usage with PostgreSQL Persistence"""
-    
+
+    @staticmethod
+    def check_org_limit(org_id, current_user):
+        """
+        Check if an organization has reached its node limit.
+        Returns (is_reached, current_count, limit)
+        """
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            # 1. Get Org Limits
+            cur.execute("SELECT node_limit, extra_slots, tier FROM organizations WHERE org_id = %s", (org_id,))
+            org = cur.fetchone()
+            if not org:
+                return False, 0, 0
+                
+            # 2. Get Current System Count
+            cur.execute("SELECT COUNT(*) FROM systems WHERE org_id::text = %s::text", (str(org_id),))
+            current_count = cur.fetchone()['count']
+            
+            total_limit = org['node_limit'] + org['extra_slots']
+            
+            # ROOT users are never limited
+            if current_user.get('role') == 'ROOT':
+                return False, current_count, total_limit
+                
+            return current_count >= total_limit, current_count, total_limit
+        finally:
+            cur.close()
+            conn.close()
+
     @staticmethod
     def _row_to_unit(row):
         """Convert a DB row to the frontend unit format"""
@@ -851,9 +1248,22 @@ class UnitStore:
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            # Delete metrics first due to FK
-            cur.execute("DELETE FROM system_metrics WHERE system_id = %s OR system_id IN (SELECT system_id FROM systems WHERE system_name = %s)", (unit_id, unit_id))
-            cur.execute("DELETE FROM systems WHERE system_id = %s OR system_name = %s", (unit_id, unit_id))
+            
+            # 1. Resolve actual system_id first to avoid ambiguity
+            cur.execute("SELECT system_id FROM systems WHERE system_id = %s OR system_name = %s", (unit_id, unit_id))
+            row = cur.fetchone()
+            if not row:
+                return
+                
+            actual_id = row[0]
+            
+            # 2. Delete all dependent metrics (raw and aggregated)
+            cur.execute("DELETE FROM system_metrics WHERE system_id = %s", (actual_id,))
+            cur.execute("DELETE FROM aggregated_metrics WHERE system_id = %s", (actual_id,))
+            
+            # 3. Finally delete the system itself
+            cur.execute("DELETE FROM systems WHERE system_id = %s", (actual_id,))
+            
             conn.commit()
             cur.close()
             conn.close()
@@ -1095,6 +1505,44 @@ def get_units_route(current_user):
     print(f"DEBUG [SYNC]: Fetching units for {user_email} | Role: {user_role} | Org: {user_org} | Found: {len(units)} units")
     return jsonify(units)
 
+@app.route('/api/cameras', methods=['GET'])
+@token_required
+def get_cameras_route(current_user):
+    """Get all cameras for the current organization"""
+    try:
+        cameras = CameraStore.get_all_cameras(current_user.get('org_id'))
+        return jsonify(cameras)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras', methods=['POST'])
+@token_required
+def add_camera_route(current_user):
+    """Register a new IP camera"""
+    data = request.get_json()
+    name = data.get('name')
+    rtsp_url = data.get('rtsp_url')
+    host_unit_id = data.get('host_unit_id')
+    
+    if not all([name, rtsp_url, host_unit_id]):
+        return jsonify({'error': 'Missing required fields'}), 400
+        
+    try:
+        camera_id = CameraStore.add_camera(name, rtsp_url, host_unit_id, current_user.get('org_id'))
+        return jsonify({'message': 'Camera registered successfully', 'camera_id': camera_id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+@token_required
+def delete_camera_route(current_user, camera_id):
+    """Remove a camera registration"""
+    try:
+        CameraStore.delete_camera(camera_id, current_user.get('org_id'))
+        return jsonify({'message': 'Camera deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/orgs', methods=['GET'])
 @token_required
 def get_orgs(current_user):
@@ -1112,6 +1560,140 @@ def get_orgs(current_user):
         return jsonify(orgs)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# --- INDIVIDUAL NODE SLOT PAYMENT APIS (₹30 per Slot) ---
+
+@app.route('/api/payments/create-slot-order', methods=['POST'])
+@token_required
+def create_slot_order(current_user):
+    """Create a ₹30 Razorpay order for an individual node slot"""
+    data = request.get_json()
+    quantity = int(data.get('quantity', 1))
+    
+    if quantity < 1:
+        return jsonify({'error': 'Minimum quantity is 1'}), 400
+        
+    # Fetch price from DB
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT price_monthly FROM pricing_plans WHERE slug = 'extra_node' AND is_active = TRUE")
+    plan = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    price_per_slot = int(plan['price_monthly']) if plan else 30
+    total_amount = quantity * price_per_slot
+    
+    order_data = {
+        'amount': total_amount * 100,  # Razorpay expects paise
+        'currency': 'INR',
+        'receipt': f"slot_rcpt_{uuid.uuid4().hex[:10]}",
+        'notes': {
+            'org_id': current_user['org_id'],
+            'type': 'node_slot_addon',
+            'quantity': quantity
+        }
+    }
+    
+    try:
+        order = razorpay_client.order.create(data=order_data)
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO transactions (org_id, plan_id, amount, razorpay_order_id, status)
+            VALUES (%s, NULL, %s, %s, 'created')
+        """, (current_user['org_id'], total_amount, order['id']))
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'order_id': order['id'],
+            'amount': total_amount,
+            'currency': 'INR',
+            'key_id': RAZORPAY_KEY_ID,
+            'name': 'SysLogger Fleet Expansion',
+            'description': f"Purchase {quantity} extra node slot(s)",
+            'prefill': {
+                'email': current_user['email']
+            }
+        })
+    except Exception as e:
+        print(f"Razorpay Order Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/payments/verify-slot-payment', methods=['POST'])
+@token_required
+def verify_slot_payment(current_user):
+    """Verify payment and increment organization extra_slots"""
+    data = request.get_json()
+    razorpay_order_id = data.get('razorpay_order_id')
+    razorpay_payment_id = data.get('razorpay_payment_id')
+    razorpay_signature = data.get('razorpay_signature')
+    
+    if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+        return jsonify({'error': 'Invalid payment data'}), 400
+        
+    params_dict = {
+        'razorpay_order_id': razorpay_order_id,
+        'razorpay_payment_id': razorpay_payment_id,
+        'razorpay_signature': razorpay_signature
+    }
+    
+    try:
+        # 1. Verify Signature
+        razorpay_client.utility.verify_payment_signature(params_dict)
+        
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # 2. Update transaction status
+        cur.execute("""
+            UPDATE transactions 
+            SET razorpay_payment_id = %s, status = 'success' 
+            WHERE razorpay_order_id = %s 
+            RETURNING amount
+        """, (razorpay_payment_id, razorpay_order_id))
+        
+        txn = cur.fetchone()
+        if not txn:
+            conn.rollback()
+            return jsonify({'error': 'Transaction record not found'}), 404
+            
+        # 3. Calculate quantity and update organization slots
+        cur.execute("SELECT price_monthly FROM pricing_plans WHERE slug = 'extra_node' AND is_active = TRUE")
+        plan_price = cur.fetchone()
+        current_price = int(plan_price['price_monthly']) if plan_price else 30
+        
+        paid_amount = float(txn['amount'])
+        quantity = int(paid_amount / current_price)
+        
+        if quantity < 1:
+            conn.rollback()
+            return jsonify({'error': 'Invalid amount for slot conversion'}), 400
+            
+        cur.execute("""
+            UPDATE organizations 
+            SET extra_slots = COALESCE(extra_slots, 0) + %s 
+            WHERE org_id = %s
+        """, (quantity, current_user['org_id']))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'new_slots_added': quantity,
+            'message': f'Payment verified! {quantity} node slot(s) added to your fleet.'
+        })
+        
+    except Exception as e:
+        print(f"Payment Verification Failed: {e}")
+        return jsonify({'error': 'Payment verification failed', 'details': str(e)}), 400
+
 
 @app.route('/api/pricing', methods=['GET'])
 def get_pricing():
@@ -1373,8 +1955,15 @@ def create_org(current_user):
                 
             password_hash = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             cur.execute(
-                "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO users (username, email, password_hash, role, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING user_id",
                 (admin_username, admin_email, password_hash, 'ADMIN', org_db_id)
+            )
+            admin_user_id = cur.fetchone()['user_id']
+            
+            # Create Membership for Admin
+            cur.execute(
+                "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
+                (admin_user_id, org_db_id, 'ADMIN', True)
             )
 
         conn.commit()
@@ -1440,6 +2029,55 @@ def get_unit_usage(current_user, unit_id):
         
     data = UnitStore.get_usage(unit_id, limit=100)
     return jsonify(data)
+
+class CameraStore:
+    """Store for IP Camera management with PostgreSQL Persistence"""
+
+    @staticmethod
+    def get_all_cameras(org_id):
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute("SELECT * FROM cameras WHERE organization_id = %s ORDER BY created_at DESC", (org_id,))
+            return cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def add_camera(name, rtsp_url, host_unit_id, org_id):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cameras (name, rtsp_url, organization_id, host_unit_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING camera_id
+            """, (name, rtsp_url, org_id, host_unit_id))
+            camera_id = cur.fetchone()[0]
+            conn.commit()
+            return camera_id
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def delete_camera(camera_id, org_id):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM cameras WHERE camera_id = %s AND organization_id = %s", (camera_id, org_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cur.close()
+            conn.close()
 
 # --- SERVER MONITORING ---
 
@@ -1906,6 +2544,110 @@ def report_usage():
         print(f"Error reporting usage: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/report_camera', methods=['POST'])
+def report_camera():
+    """Endpoint for units to upload camera frames"""
+    try:
+        # We expect a multipart form with 'image' and 'unit_id'
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image part'}), 400
+        
+        file = request.files['image']
+        unit_id = request.form.get('unit_id')
+        photo_type = request.form.get('photo_type', 'LIVE')
+
+        if not unit_id:
+            return jsonify({'error': 'unit_id is required'}), 400
+
+        # Verify unit exists
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT system_id, org_id FROM systems WHERE system_id = %s", (unit_id,))
+        system = cur.fetchone()
+        
+        if not system:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unit not registered'}), 404
+
+        system_id, org_id = system
+
+        # Save file
+        filename = secure_filename(f"{system_id}_{int(time.time())}.jpg")
+        # Organize by org_id for better management
+        org_folder = os.path.join(app.config['PHOTO_UPLOAD_FOLDER'], str(org_id))
+        if not os.path.exists(org_folder):
+            os.makedirs(org_folder)
+            
+        file_path = os.path.join(org_folder, filename)
+        file.save(file_path)
+
+        # Record in DB
+        # photo_url will be a relative path that we'll serve via a route
+        photo_url = f"/api/photos/{org_id}/{filename}"
+        cur.execute(
+            "INSERT INTO system_photos (system_id, photo_url, photo_type) VALUES (%s, %s, %s)",
+            (system_id, photo_url, photo_type)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({'status': 'photo received', 'url': photo_url}), 200
+
+    except Exception as e:
+        logging.error(f"Error in report_camera: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/photos/<org_id>/<filename>', methods=['GET'])
+@token_required
+def serve_photo(current_user, org_id, filename):
+    """Serve photos with access control"""
+    try:
+        # Access Control: ROOT can see everything, ORG_ADMIN can see their org
+        if current_user['role'] != 'ROOT' and str(current_user['org_id']) != str(org_id):
+            return jsonify({'error': 'Unauthorized access to this organization\'s photos'}), 403
+
+        return send_file(os.path.join(app.config['PHOTO_UPLOAD_FOLDER'], org_id, filename))
+    except Exception as e:
+        return jsonify({'error': 'Photo not found'}), 404
+
+@app.route('/api/units/<unit_id>/photos', methods=['GET'])
+@token_required
+def get_unit_photos(current_user, unit_id):
+    """Get photo history for a specific unit"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Access Control: Verify user has access to this unit's org
+        cur.execute("SELECT org_id FROM systems WHERE system_id = %s", (unit_id,))
+        system = cur.fetchone()
+        
+        if not system:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unit not found'}), 404
+            
+        if current_user['role'] != 'ROOT' and str(current_user['org_id']) != str(system['org_id']):
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Unauthorized access'}), 403
+
+        # Get last 50 photos
+        cur.execute(
+            "SELECT photo_id, photo_url, photo_type, captured_at FROM system_photos WHERE system_id = %s ORDER BY captured_at DESC LIMIT 50",
+            (unit_id,)
+        )
+        photos = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        return jsonify(photos), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/units/<unit_id>/export', methods=['GET'])
 def export_unit_data(unit_id):
     try:
@@ -2336,6 +3078,82 @@ def handle_join_org(data):
         print(f"User joined Org room: {org_id} ({request.sid})")
         emit('units_update', UnitStore.get_units_by_org(org_id))
         emit('org_units_update', UnitStore.get_units_by_org(org_id))
+
+@socketio.on('join_stream')
+def handle_join_stream(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import join_room
+    join_room(f"stream_{unit_id}")
+    print(f"Admin {request.sid} joined stream room for unit {unit_id}")
+    # Signal the unit to start streaming
+    emit('start_stream', {'requester': request.sid}, room=f"unit_node_{unit_id}")
+
+@socketio.on('leave_stream')
+def handle_leave_stream(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import leave_room
+    leave_room(f"stream_{unit_id}")
+    # Signal unit to stop if no one else is watching (optional optimization)
+    emit('stop_stream', {}, room=f"unit_node_{unit_id}")
+
+@socketio.on('unit_login')
+def handle_unit_login(data):
+    unit_id = data.get('unit_id')
+    from flask_socketio import join_room
+    join_room(f"unit_node_{unit_id}")
+    print(f"Unit {unit_id} logged into control room")
+
+@socketio.on('video_frame')
+def handle_video_frame(data):
+    unit_id = data.get('unit_id')
+    # Relay directly to watchers
+    emit('live_frame', data, room=f"stream_{unit_id}", include_self=False)
+
+@socketio.on('request_remote_stream')
+def handle_remote_stream_request(data):
+    """Admin requests a live feed from a remote IP camera"""
+    camera_id = data.get('camera_id')
+    quality = data.get('quality', 'SUBSTREAM')
+    
+    from flask_socketio import join_room
+    join_room(f"remote_stream_{camera_id}")
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT rtsp_url, host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
+    camera = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if camera:
+        emit('start_camera_relay', {
+            'camera_id': camera_id,
+            'rtsp_url': camera['rtsp_url'],
+            'quality': quality
+        }, room=f"unit_node_{camera['host_unit_id']}")
+
+@socketio.on('relay_frame')
+def handle_relay_frame(data):
+    """Host PC sends a frame; broadcast it to all watching Admins"""
+    camera_id = data.get('camera_id')
+    emit('live_frame', data, room=f"remote_stream_{camera_id}")
+
+@socketio.on('stop_remote_stream')
+def handle_stop_remote_stream(data):
+    """Admin stops watching; VPS tells Host PC to kill the thread"""
+    camera_id = data.get('camera_id')
+    from flask_socketio import leave_room
+    leave_room(f"remote_stream_{camera_id}")
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT host_unit_id FROM cameras WHERE camera_id = %s", (camera_id,))
+    camera = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if camera:
+        emit('stop_camera_relay', {'camera_id': camera_id}, room=f"unit_node_{camera['host_unit_id']}")
 
 if __name__ == '__main__':
     # Units are now managed exclusively in PostgreSQL

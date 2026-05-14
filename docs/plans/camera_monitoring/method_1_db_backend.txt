@@ -1,0 +1,97 @@
+================================================================================
+METHOD 1: THE DATABASE & API FOUNDATION (THE ADDRESS BOOK)
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+The system needs a "memory" of where the central cameras are located. We won't 
+install software on the cameras, so we store their local RTSP URLs and link 
+each camera to a "Host Node" (an existing PC in the lab) that is responsible 
+for fetching the video.
+
+2. DATABASE CHANGES (PostgreSQL)
+--------------------------------
+FILE: [Direct SQL Execution]
+NEW TABLE: `cameras`
+
+Columns:
+- id: SERIAL PRIMARY KEY
+- name: VARCHAR(255) (e.g., "Lab North Entrance")
+- rtsp_url: TEXT (e.g., "rtsp://admin:pass@192.168.1.50/stream")
+- organization_id: INTEGER (Link to the Org)
+- host_unit_id: VARCHAR(50) (The ID of the PC node that will relay the video)
+- status: VARCHAR(20) (Default: 'OFFLINE')
+- created_at: TIMESTAMP
+
+3. BACKEND FILE MODIFICATIONS
+-----------------------------
+FILE: `backend/sys_logger.py`
+
+A. Add new endpoints for Camera Management:
+   
+   - GET `/api/cameras`:
+     ```python
+     @app.route('/api/cameras', methods=['GET'])
+     @token_required
+     def get_cameras(current_user):
+         conn = get_db_connection()
+         cur = conn.cursor(cursor_factory=RealDictCursor)
+         cur.execute("SELECT * FROM cameras WHERE organization_id = %s", (current_user['org_id'],))
+         cameras = cur.fetchall()
+         cur.close()
+         conn.close()
+         return jsonify(cameras)
+     ```
+
+   - POST `/api/cameras`:
+     ```python
+     @app.route('/api/cameras', methods=['POST'])
+     @token_required
+     def add_camera(current_user):
+         data = request.get_json()
+         conn = get_db_connection()
+We need a place to store camera metadata (RTSP URLs) and a way to bill for them 
+at the introductory ₹35 price point.
+
+2. PRICING PLAN UPDATE
+----------------------
+We will add a new entry to the `pricing_plans` table to handle camera access.
+
+```sql
+INSERT INTO pricing_plans (name, slug, price_monthly, node_limit, features, is_active)
+VALUES (
+    'Central Camera Access', 
+    'camera_access', 
+    35.00, 
+    1, 
+    '["24/7 Sub-stream View", "HD On-Demand", "Motion Alerts"]', 
+    true
+);
+```
+
+3. NEW TABLE: `cameras`
+-----------------------
+```sql
+CREATE TABLE cameras (
+    camera_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    rtsp_url TEXT NOT NULL,
+    organization_id INTEGER REFERENCES organizations(id),
+    host_unit_id VARCHAR(50) NOT NULL,
+    stream_type VARCHAR(20) DEFAULT 'SUBSTREAM', -- SUBSTREAM or HD
+    status VARCHAR(20) DEFAULT 'OFFLINE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+4. API ENDPOINTS (Flask)
+------------------------
+A. `POST /api/cameras`: Add a new camera (Validates if Org has paid ₹35).
+B. `GET /api/cameras`: List all cameras for the current organization.
+C. `PUT /api/cameras/<id>`: Update RTSP URL or Host PC.
+
+5. CHALLENGES TO ADDRESS
+------------------------
+- Bandwidth Protection: Default all streams to Sub-stream (360p) to fit 123 labs.
+- Payment Integration: Use existing Razorpay flow to purchase the ₹35 'camera_access' slot.
+================================================================================

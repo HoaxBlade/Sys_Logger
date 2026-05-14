@@ -255,6 +255,7 @@ CREATE TABLE IF NOT EXISTS pricing_plans (
     slug VARCHAR(255) NOT NULL UNIQUE,
     price_monthly NUMERIC(10, 2) NOT NULL,
     node_limit INTEGER NOT NULL,
+    camera_limit INTEGER NOT NULL DEFAULT 0,
     features JSONB NOT NULL DEFAULT '[]',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -275,13 +276,13 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_order_id ON transactions(razorpay_order_id);
 
 -- Seed initial plans
-INSERT INTO pricing_plans (name, slug, price_monthly, node_limit, features) 
+INSERT INTO pricing_plans (name, slug, price_monthly, node_limit, camera_limit, features) 
 VALUES 
-('Free', 'free', 0.00, 1, '["1 Active Node", "Real-time Telemetry", "Basic Support"]'::jsonb),
-('Pro', 'pro', 99.00, 5, '["5 Active Nodes", "Advanced Metrics", "Priority Support"]'::jsonb),
-('Business', 'business', 199.00, 10, '["10 Active Nodes", "Global Fleet Control", "24/7 Support"]'::jsonb)
+('Free', 'free', 0.00, 1, 0, '["1 Active Node", "Real-time Telemetry", "Basic Support"]'::jsonb),
+('Pro', 'pro', 99.00, 5, 2, '["5 Active Nodes", "Advanced Metrics", "Priority Support", "2 CCTV Cameras"]'::jsonb),
+('Business', 'business', 199.00, 10, 10, '["10 Active Nodes", "Global Fleet Control", "24/7 Support", "10 CCTV Cameras"]'::jsonb)
 ON CONFLICT (slug) DO UPDATE 
-SET node_limit = EXCLUDED.node_limit, features = EXCLUDED.features;
+SET node_limit = EXCLUDED.node_limit, camera_limit = EXCLUDED.camera_limit, features = EXCLUDED.features;
 
 -- Seed Root Organization
 INSERT INTO organizations (org_id, name, slug, tier, node_limit)
@@ -290,5 +291,35 @@ ON CONFLICT (org_id) DO NOTHING;
 
 -- Seed Root Admin (Password: admin@1234)
 INSERT INTO users (username, email, password_hash, role, org_id)
-VALUES ('krishisahayogi', 'krishisahayogi.2025@gmail.com', '$2b$12$vFFMs4YqExZFWexEPhOHv.Z.gSPCiJdCB9jm3U/9rWLP7o4Vl4V0G', 'ROOT', 1)
-ON CONFLICT (username) DO NOTHING;
+VALUES ('krishisahayogi', 'krishisahayogi.2025@gmail.com', '$2b$12$vFFMs4YqExZFWexEPhOHv.Z.gSPCiJdCB9jm3U/9rWLP7o4Vl4V0G', 'ROOT', 1);
+-- ============================================================
+-- 7. CAMERA & ASSET AUDIT
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS system_photos (
+    photo_id SERIAL PRIMARY KEY,
+    system_id INTEGER NOT NULL REFERENCES systems(system_id) ON DELETE CASCADE,
+    photo_url VARCHAR(512) NOT NULL,
+    photo_type VARCHAR(50) DEFAULT 'LIVE', -- 'LIVE', 'ASSET', 'MAINTENANCE'
+    captured_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_photos_system_id ON system_photos(system_id);
+CREATE INDEX IF NOT EXISTS idx_system_photos_captured_at ON system_photos(captured_at);
+
+-- ============================================================
+-- 8. CCTV CAMERAS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS cameras (
+    camera_id SERIAL PRIMARY KEY,
+    org_id INTEGER NOT NULL REFERENCES organizations(org_id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    rtsp_url VARCHAR(512) NOT NULL,
+    host_unit_id VARCHAR(255),
+    status VARCHAR(50) DEFAULT 'offline',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_checked TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cameras_org_id ON cameras(org_id);

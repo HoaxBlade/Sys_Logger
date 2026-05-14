@@ -18,8 +18,10 @@ import {
     Monitor, Server, Database, Globe,
     ChevronRight, ChevronDown, Download, Cpu, HardDrive,
     Wifi, Zap, Clock, AlertTriangle,
-    Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut
+    Terminal, Pencil, Trash2, X, Save, Activity, Menu, ArrowLeft, Shield, LogOut, Camera
 } from 'lucide-react'
+import { CameraGallery } from './components/CameraGallery';
+import { RemoteCameraMonitor } from './components/RemoteCameraMonitor';
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -42,6 +44,7 @@ interface PricingPlan {
 
 import { useAuth } from './components/AuthContext';
 import { useRouter } from 'next/navigation';
+import { apiFetch } from './components/hooks/apiUtils';
 
 // ----------------------------------------------------------------------
 
@@ -282,7 +285,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const loading = apiUnits.loading
     const selectedUnitId = apiUsage.selectedUnitId
 
-    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management'>('metrics')
+    const [activeTab, setActiveTab] = useState<'metrics' | 'logs' | 'management' | 'camera' | 'central_monitor'>('metrics')
     const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'gpu' | 'ram' | 'network_rx'>('cpu')
 
 
@@ -317,6 +320,56 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                 ? prev.filter(o => o !== orgName) 
                 : [...prev, orgName]
         );
+    };
+
+    const handleBuySlot = async () => {
+        setPaymentLoading('extra_node');
+        try {
+            const orderResp = await fetch('/api/payments/create-slot-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ quantity: 1 })
+            });
+            const orderData = await orderResp.json();
+            if (!orderResp.ok) throw new Error(orderData.error || 'Failed to create order');
+
+            const options = {
+                key: orderData.key_id,
+                amount: orderData.amount,
+                currency: orderData.currency,
+                name: "SysLogger Fleet Expansion",
+                description: orderData.description,
+                order_id: orderData.order_id,
+                handler: async (response: any) => {
+                    const verifyResp = await fetch('/api/payments/verify-slot-payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature
+                        })
+                    });
+                    const verifyData = await verifyResp.json();
+                    if (verifyResp.ok) {
+                        setIsUpgradeModalOpen(false);
+                        alert(`✅ ${verifyData.message}`);
+                        // Refresh units to get updated limits
+                        apiUnits.refetchUnits();
+                    } else {
+                        alert('Payment verification failed: ' + verifyData.error);
+                    }
+                },
+                prefill: orderData.prefill,
+                theme: { color: '#f97316' }
+            };
+            const rzp = new (window as any).Razorpay(options);
+            rzp.open();
+        } catch (err: any) {
+            alert(err.message || 'Payment failed to initiate');
+        } finally {
+            setPaymentLoading(null);
+        }
     };
 
     // Auto-expand orgs when searching
@@ -635,6 +688,22 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     const lastData = usageData.length > 0 ? usageData[usageData.length - 1] : null
     const activeUnits = units.filter(u => u.status === 'online').length
     const totalUnits = units.length
+    const isLimitReached = useMemo(() => {
+        if (user?.role === 'ROOT') return false;
+        const limit = (user?.node_limit || 0) + (user?.extra_slots || 0);
+        // If we don't have limit info yet, don't block
+        if (!user?.node_limit && !user?.extra_slots) return false;
+        return totalUnits >= limit;
+    }, [user, totalUnits]);
+
+    const groupedUnits = useMemo(() => {
+        return sortedUnits.reduce((acc, unit) => {
+            const org = unit.org_name || 'Global';
+            if (!acc[org]) acc[org] = [];
+            acc[org].push(unit);
+            return acc;
+        }, {} as Record<string, Unit[]>);
+    }, [sortedUnits]);
 
     // Data for the Mini-Cards
     const currentMetrics = useMemo(() => [
@@ -645,6 +714,9 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
     ], [lastData])
 
     const activeMetricData = currentMetrics.find(m => m.id === selectedMetric)
+    const slotPrice = useMemo(() => {
+        return plans.find(p => p.slug === 'extra_node')?.price_monthly ?? 30;
+    }, [plans]);
 
     return (
         <div className="h-screen overflow-hidden bg-[#FAFAFA] text-zinc-900 font-sans flex flex-col p-2 sm:p-4 lg:p-6 gap-4 lg:gap-6 relative selection:bg-orange-500/20">
@@ -698,6 +770,21 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                             <h1 className="text-xl lg:text-2xl font-black tracking-tight text-zinc-900 uppercase group-hover:text-orange-600 transition-colors">
                                 Dashboard
                             </h1>
+                        </button>
+
+                        <div className="h-10 w-[1px] bg-zinc-100 hidden lg:block mx-2" />
+
+                        <button
+                            onClick={() => setActiveTab(activeTab === 'central_monitor' ? 'metrics' : 'central_monitor')}
+                            className={cn(
+                                "hidden lg:flex items-center gap-2.5 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ring-1",
+                                activeTab === 'central_monitor'
+                                    ? "bg-indigo-600 text-white shadow-[0_8px_20px_rgba(79,70,229,0.3)] ring-indigo-500"
+                                    : "bg-white text-zinc-500 hover:text-indigo-600 ring-zinc-200 hover:bg-indigo-50/50 hover:ring-indigo-100"
+                            )}
+                        >
+                            <Camera size={14} className={activeTab === 'central_monitor' ? 'text-white' : 'text-indigo-500'} />
+                            {activeTab === 'central_monitor' ? 'Exit Monitor' : 'Central Monitor'}
                         </button>
                     </div>
                 </div>
@@ -902,14 +989,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                 <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">No Systems Found</p>
                             </div>
                         ) : (
-                            Object.entries(
-                                sortedUnits.reduce((acc, unit) => {
-                                    const org = unit.org_name || 'Global';
-                                    if (!acc[org]) acc[org] = [];
-                                    acc[org].push(unit);
-                                    return acc;
-                                }, {} as Record<string, Unit[]>)
-                            ).map(([org, orgUnits]) => (
+                            Object.entries(groupedUnits).map(([org, orgUnits]) => (
                                 <div key={org} className="space-y-3">
                                     <button 
                                         onClick={() => toggleOrgCollapse(org)}
@@ -1092,6 +1172,33 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                         </p>
                                     </div>
 
+                                    {isLimitReached && (
+                                        <div className="flex flex-col gap-4 bg-red-50 p-6 rounded-[2rem] border border-red-100/50 shadow-sm">
+                                            <div className="flex items-center gap-3 text-red-600">
+                                                <AlertTriangle className="w-5 h-5 shrink-0" />
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[11px] font-black uppercase tracking-widest">Node Limit Reached</span>
+                                                    <span className="text-[10px] opacity-70 font-bold uppercase tracking-tight">You have used all { (user?.node_limit || 0) + (user?.extra_slots || 0) } available slots.</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <button 
+                                                onClick={handleBuySlot}
+                                                disabled={!!paymentLoading}
+                                                className="w-full bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-xl shadow-zinc-900/10 active:scale-[0.98] disabled:opacity-50"
+                                            >
+                                                {paymentLoading === 'extra_node' ? (
+                                                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        Add Individual Node (₹{slotPrice})
+                                                        <Zap size={14} className="text-orange-400" />
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {generatedLink ? (
                                         <div className="flex flex-col gap-3">
                                             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col gap-2">
@@ -1120,7 +1227,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             <button
                                                 onClick={handleAddNode}
                                                 disabled={isDownloading}
-                                                className="flex-1 bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-50 group shadow-lg"
+                                                className="flex-1 bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed group shadow-lg"
                                             >
                                                 {isDownloading ? (
                                                     <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -1134,7 +1241,7 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             <button
                                                 onClick={() => handleGenerateLink(newNodeName)}
                                                 disabled={isDownloading}
-                                                className="flex-1 bg-white text-zinc-700 ring-1 ring-zinc-200 rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:ring-zinc-300 hover:bg-zinc-50 transition-all disabled:opacity-50 group"
+                                                className="flex-1 bg-white text-zinc-700 ring-1 ring-zinc-200 rounded-2xl py-4 font-black uppercase tracking-widest text-[10px] sm:text-xs flex items-center justify-center gap-2 hover:ring-zinc-300 hover:bg-zinc-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed group"
                                             >
                                                 {isDownloading ? (
                                                     <div className="w-4 h-4 border-2 border-zinc-200 border-t-zinc-700 rounded-full animate-spin" />
@@ -1222,6 +1329,39 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                                     </div>
                                                 );
                                             })}
+
+                                        {/* Single Slot Expansion Section */}
+                                        {(() => {
+                                            const nodePlan = plans.find(p => p.slug === 'extra_node');
+                                            if (!nodePlan) return null;
+                                            
+                                            return (
+                                                <div className="pt-4 border-t border-zinc-100 mt-4">
+                                                    <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+                                                        <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition-all pointer-events-none" />
+                                                        
+                                                        <div className="flex items-center justify-between relative z-10">
+                                                            <div>
+                                                                <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">Fleet Expansion</p>
+                                                                <h3 className="text-white font-black text-lg tracking-tight">Buy 1 Extra Node</h3>
+                                                                <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mt-1">One-time upgrade • ₹{nodePlan.price_monthly}</p>
+                                                            </div>
+                                                            <button
+                                                                onClick={handleBuySlot}
+                                                                disabled={!!paymentLoading}
+                                                                className="bg-orange-500 hover:bg-orange-400 text-white px-5 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 shadow-lg shadow-orange-500/20 transition-all active:scale-95 disabled:opacity-50"
+                                                            >
+                                                                {paymentLoading === 'extra_node' ? (
+                                                                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                                ) : (
+                                                                    <>Add Slot <Zap size={14} /></>
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                             </motion.div>
@@ -1356,7 +1496,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
 
                 <main className="flex-1 flex flex-col relative overflow-hidden w-full min-h-0">
                     <AnimatePresence mode="wait">
-                        {activeTab === 'management' ? (
+                        {activeTab === 'central_monitor' ? (
+                            <motion.div
+                                key="central_monitor"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="flex-1 min-h-0 p-4 lg:p-0"
+                            >
+                                <RemoteCameraMonitor />
+                            </motion.div>
+                        ) : activeTab === 'management' ? (
                             <motion.div
                                 key="management"
                                 initial={{ opacity: 0, y: 10 }}
@@ -1433,6 +1583,17 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </button>
                                             <button onClick={handleDeleteUnit} disabled={isDeleting} className="p-3 bg-white hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20 disabled:opacity-50" title="Remove Node">
                                                 <Trash2 className="w-4 h-4" />
+                                            </button>
+                                            <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
+                                            <button 
+                                                onClick={() => setActiveTab(activeTab === 'camera' ? 'metrics' : 'camera')} 
+                                                className={cn(
+                                                    "p-3 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20",
+                                                    activeTab === 'camera' ? "bg-orange-500 text-white shadow-orange-500/20" : "bg-white hover:bg-orange-50 hover:text-orange-600 text-zinc-400"
+                                                )} 
+                                                title="Physical Audit Logs"
+                                            >
+                                                <Camera className="w-4 h-4" />
                                             </button>
                                             <div className="mx-2 w-[1px] h-6 bg-zinc-200" />
                                             <button onClick={() => window.print()} className="p-3 bg-white hover:bg-zinc-900 hover:text-white text-zinc-400 rounded-xl transition-all shadow-sm ring-1 ring-zinc-200/20" title="Official Print">
@@ -1615,6 +1776,10 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </div>
                                         </div>
                                     </div>
+                                ) : activeTab === 'camera' ? (
+                                    <div className="flex-1 min-h-0 pb-6">
+                                        <CameraGallery unitId={selectedUnit.id} unitName={selectedUnit.name.split('/').pop() || ''} />
+                                    </div>
                                 ) : (
                                     /* <div className="bg-[#09090B] rounded-2xl lg:rounded-3xl shadow-xl border border-zinc-800 h-full min-h-[400px] lg:min-h-[500px] flex flex-col overflow-hidden">
                                         <div className="bg-[#18181B] p-3 lg:p-4 border-b border-zinc-800 flex items-center justify-between">
@@ -1681,13 +1846,28 @@ export default function DashboardView({ orgId: propOrgId }: DashboardViewProps) 
                                             </button>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-5 pb-8">
-                                            {sortedUnits.map((unit) => (
-                                                <CompactStatCard
-                                                    key={unit.id}
-                                                    unit={unit}
-                                                    onClick={() => handleUnitToggle(unit)}
-                                                />
+                                        <div className="flex flex-col gap-10 pb-12">
+                                            {Object.entries(groupedUnits).map(([orgName, orgUnits]) => (
+                                                <div key={orgName} className="space-y-6">
+                                                    <div className="flex items-center gap-4 px-1">
+                                                        <div className="h-px flex-1 bg-zinc-200/60" />
+                                                        <h3 className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.4em] flex items-center gap-3 shrink-0">
+                                                            <div className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)]" />
+                                                            {orgName}
+                                                            <span className="text-zinc-300 font-bold tracking-tight">({orgUnits.length})</span>
+                                                        </h3>
+                                                        <div className="h-px flex-1 bg-zinc-200/60" />
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-5">
+                                                        {orgUnits.map((unit) => (
+                                                            <CompactStatCard
+                                                                key={unit.id}
+                                                                unit={unit}
+                                                                onClick={() => handleUnitToggle(unit)}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             ))}
                                         </div>
                                     )}

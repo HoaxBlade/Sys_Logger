@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Building2, Plus, ArrowRight, Server, Shield, Globe, Check, AlertCircle, Activity, Eye, EyeOff } from 'lucide-react';
+import { Building2, Plus, ArrowRight, Server, Shield, Globe, Check, AlertCircle, Activity, Eye, EyeOff, Zap } from 'lucide-react';
 import { apiFetch } from './hooks/apiUtils';
 import { UserManager } from './UserManager';
 import { clsx, type ClassValue } from 'clsx';
@@ -300,6 +300,37 @@ export function OrgManager() {
                             </div>
                         </div>
 
+                        {/* Node Price Editor (New Section for ROOT) */}
+                        <div className="mb-8 bg-zinc-900 rounded-3xl p-6 shadow-2xl ring-1 ring-white/10 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none group-hover:bg-orange-500/15 transition-all" />
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/20">
+                                        <Zap className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-white font-black text-xl tracking-tight">Per Node Expansion</h3>
+                                        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mt-1">Cost for individual node slots</p>
+                                    </div>
+                                </div>
+                                
+                                {plans.find(p => p.slug === 'extra_node') && (
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">Current Price</span>
+                                            <span className="text-white font-mono font-black text-2xl">₹{plans.find(p => p.slug === 'extra_node')?.price_monthly}</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setEditingPlan(plans.find(p => p.slug === 'extra_node') || null)}
+                                            className="px-6 py-3 bg-white text-zinc-900 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-orange-500 hover:text-white transition-all shadow-xl active:scale-95"
+                                        >
+                                            Adjust Price
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             {plans.map(plan => (
                                 <div key={plan.plan_id} className="relative p-6 rounded-[2rem] bg-gradient-to-br from-white/80 to-emerald-50/20 shadow-xl ring-1 ring-emerald-200/50 hover:ring-2 hover:ring-emerald-400 hover:shadow-[0_0_40px_rgba(16,185,129,0.25)] hover:-translate-y-2 transition-all duration-300 overflow-hidden backdrop-blur-xl group">
@@ -351,7 +382,9 @@ export function OrgManager() {
 
                                     <form onSubmit={handleUpdatePricing} className="space-y-6">
                                         <div>
-                                            <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1">Price (USD / Month)</label>
+                                            <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1">
+                                                {editingPlan.slug === 'extra_node' ? 'Price per Single Node Expansion (INR)' : 'Price (INR / Month)'}
+                                            </label>
                                             <input 
                                                 type="number"
                                                 value={editingPlan.price_monthly}
@@ -359,23 +392,27 @@ export function OrgManager() {
                                                 className="w-full bg-zinc-50 border-none ring-1 ring-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-emerald-500/20"
                                             />
                                         </div>
-                                        <div>
-                                            <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5"/> Node Limit</label>
-                                            <input 
-                                                type="number"
-                                                value={editingPlan.node_limit}
-                                                onChange={e => setEditingPlan({...editingPlan, node_limit: parseInt(e.target.value)})}
-                                                className="w-full bg-zinc-50 border-none ring-1 ring-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-emerald-500/20"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1">Features (Comma Separated)</label>
-                                            <textarea 
-                                                value={Array.isArray(editingPlan.features) ? editingPlan.features.join(', ') : editingPlan.features}
-                                                onChange={e => setEditingPlan({...editingPlan, features: e.target.value as any})}
-                                                className="w-full bg-zinc-50 border-none ring-1 ring-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-emerald-500/20 h-32"
-                                            />
-                                        </div>
+                                        {editingPlan.slug !== 'extra_node' && (
+                                            <div>
+                                                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5"/> Node Limit</label>
+                                                <input 
+                                                    type="number"
+                                                    value={editingPlan.node_limit}
+                                                    onChange={e => setEditingPlan({...editingPlan, node_limit: parseInt(e.target.value)})}
+                                                    className="w-full bg-zinc-50 border-none ring-1 ring-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-emerald-500/20"
+                                                />
+                                            </div>
+                                        )}
+                                        {editingPlan.slug !== 'extra_node' && (
+                                            <div>
+                                                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block ml-1">Features (Comma Separated)</label>
+                                                <textarea 
+                                                    value={Array.isArray(editingPlan.features) ? editingPlan.features.join(', ') : editingPlan.features}
+                                                    onChange={e => setEditingPlan({...editingPlan, features: e.target.value as any})}
+                                                    className="w-full bg-zinc-50 border-none ring-1 ring-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-emerald-500/20 h-32"
+                                                />
+                                            </div>
+                                        )}
 
                                         <div className="flex items-center gap-3 bg-zinc-50 p-4 rounded-2xl ring-1 ring-zinc-200">
                                             <input 

@@ -1,0 +1,62 @@
+================================================================================
+METHOD 4: THE FRONTEND DASHBOARD UI (THE "VIEW")
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+The Dashboard needs to present the Lab Camera as a professional resource. 
+It should be easy to find and look high-end.
+
+2. FRONTEND FILE MODIFICATIONS
+------------------------------
+FILE: `frontend/src/app/components/CameraGallery.tsx`
+
+A. The "Live Monitor" Logic:
+```tsx
+const [cameraSource, setCameraSource] = useState('LOCAL'); // LOCAL or REMOTE
+
+const toggleSource = (newSource) => {
+    if (newSource === 'REMOTE') {
+        socket.emit('request_remote_stream', { camera_id: selectedCamera.id });
+    } else {
+        socket.emit('stop_remote_stream', { camera_id: selectedCamera.id });
+    }
+    setCameraSource(newSource);
+};
+
+// Listener for relayed frames
+useEffect(() => {
+    socket.on('live_frame', (data) => {
+        if (data.camera_id === selectedCamera.id) {
+            setFrame(data.frame);
+        }
+    });
+}, [selectedCamera]);
+```
+
+3. NEW COMPONENTS
+-----------------
+A. `CameraAddModal.tsx`:
+   A sleek popup form with these fields:
+   - Name (Text)
+   - RTSP URL (Text)
+   - Host Node (Select Dropdown)
+   - Submit Button (Calls POST /api/cameras)
+
+B. `CameraCard.tsx`:
+   A small widget showing a thumbnail of the last known frame and the 
+   camera's metadata.
+
+4. USER EXPERIENCE (UX) POLISH
+------------------------------
+- Loading States: While the PC is waking up the camera (Phase 3), the UI 
+  should show "Connecting to Lab Infrastructure..." with a spinner.
+- Resolution Toggle: A button to switch between "Low Bandwidth" and 
+  "High Detail" modes.
+
+5. THE "DASHBOARD" FEEL
+-----------------------
+The goal is to make the user feel like they are in a security control room. 
+We will use a dark, semi-transparent (Glassmorphism) layout for the camera 
+controls to match your current premium design.
+================================================================================

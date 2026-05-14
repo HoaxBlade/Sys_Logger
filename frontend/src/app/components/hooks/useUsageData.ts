@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { UsageData } from '../types'
 import { apiFetch } from './apiUtils'
+import { useAuth } from '../AuthContext'
 
 interface UseUsageDataReturn {
   data: UsageData[]
@@ -17,6 +18,7 @@ interface UseUsageDataReturn {
 const POLL_INTERVAL = 2000
 
 export const useUsageData = (orgId?: string): UseUsageDataReturn => {
+  const { token } = useAuth()
   const [data, setData] = useState<UsageData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +66,7 @@ export const useUsageData = (orgId?: string): UseUsageDataReturn => {
   }
 
   const fetchData = useCallback(async () => {
+    if (!token) return; // Guard: No token, no poll
     try {
       let endpoint = ''
       if (selectedUnitId) {
@@ -95,14 +98,16 @@ export const useUsageData = (orgId?: string): UseUsageDataReturn => {
       setData([]) // Clear stale telemetry on error
       setLoading(false)
     }
-  }, [orgId, selectedUnitId])
+  }, [orgId, selectedUnitId, token])
 
   // HTTP Polling (works reliably through Vercel HTTPS proxy)
   useEffect(() => {
+    if (!token) return;
+
     fetchData()
     const interval = setInterval(fetchData, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [fetchData])
+  }, [fetchData, token])
 
   const filteredData = useMemo(() => {
     return data

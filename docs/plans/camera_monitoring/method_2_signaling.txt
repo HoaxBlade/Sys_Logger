@@ -1,0 +1,48 @@
+================================================================================
+METHOD 2: THE COMMAND & SIGNAL FLOW (THE HANDSHAKE)
+================================================================================
+
+1. LOGIC OVERVIEW
+-----------------
+To support the ₹35 introductory pricing, we MUST save bandwidth. The VPS will 
+default to requesting a "SUBSTREAM" (low-res) from the camera unless the Admin 
+explicitly asks for "HD".
+
+2. COMMUNICATION ARCHITECTURE
+-----------------------------
+A. The Handshake:
+   1. Admin clicks "Inspect" -> Browser emits `request_remote_stream` { camera_id, quality: 'SUBSTREAM' }.
+   2. VPS tells the Host PC: `start_camera_relay` { camera_id, rtsp_url, quality }.
+   3. PC node captures from Camera and compresses based on `quality`.
+
+B. Auto-Kill (Bandwidth Saver):
+   - If the SocketIO room `remote_stream_<camera_id>` has 0 viewers for 2 minutes,
+     the VPS emits `stop_camera_relay` to the PC to stop the stream.
+
+3. BACKEND FILE MODIFICATIONS
+-----------------------------
+FILE: `backend/sys_logger.py`
+
+A. SocketIO Event Listeners:
+```python
+@socketio.on('request_remote_stream')
+def handle_remote_stream_request(data):
+    camera_id = data.get('camera_id')
+    quality = data.get('quality', 'SUBSTREAM') # Default to 360p
+    
+    join_room(f"remote_stream_{camera_id}")
+    
+    # Notify Host PC
+    # (Find host_unit_id and rtsp_url from the new 'cameras' table)
+    emit('start_camera_relay', {
+        'camera_id': camera_id,
+        'rtsp_url': camera['rtsp_url'],
+        'quality': quality
+    }, room=f"unit_node_{camera['host_unit_id']}")
+```
+
+4. PERFORMANCE PREDICTION
+-------------------------
+- SUBSTREAM: ~200 Kbps (Fits 123 labs on your 8 TB plan).
+- HD: ~1.5 Mbps (Used only when the Admin toggles it).
+================================================================================
