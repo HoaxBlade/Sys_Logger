@@ -2,7 +2,7 @@
              SYS_LOGGER - PROJECT MASTER PLAN & ROADMA
 =============================================================================
 
-1. THE "ZERO TO HERO" DEPLOYMENT STRATEGY
+1. THE "ZERO TO  HERO" DEPLOYMENT STRATEGY
 -----------------------------------------------------------------------------
 We avoid rewriting code by scaling infrastructure in 3 phases.
 
