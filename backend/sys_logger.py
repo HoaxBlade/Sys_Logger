@@ -246,6 +246,60 @@ def validate_password_strength(password):
         return False, "Password must contain at least one special character."
     return True, ""
 
+@app.route('/api/auth/register-order', methods=['POST'])
+def register_order():
+    """Create a Razorpay order for Business tier registration before user is registered"""
+    data = request.get_json()
+    email = data.get('email', '').lower()
+    org_name = data.get('org_name')
+    
+    if not email or not org_name:
+        return jsonify({'message': 'Missing email or company name!'}), 400
+        
+    username = email.split('@')[0]
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if user or email already exists
+        cur.execute("SELECT 1 FROM users WHERE email = %s OR username = %s", (email, username))
+        if cur.fetchone():
+            conn.close()
+            return jsonify({'message': 'User or email already exists!'}), 400
+            
+        # Fetch Business plan details
+        cur.execute("SELECT plan_id, price_monthly FROM pricing_plans WHERE slug = 'business' AND is_active = true")
+        plan = cur.fetchone()
+        
+        if not plan:
+            conn.close()
+            return jsonify({'message': 'Business plan is currently unavailable'}), 404
+            
+        # Create Razorpay order
+        amount_in_paise = int(plan['price_monthly'] * 100)
+        order_data = {
+            'amount': amount_in_paise,
+            'currency': 'INR',
+            'payment_capture': 1
+        }
+        
+        order = razorpay_client.order.create(data=order_data)
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'order_id': order['id'],
+            'amount': amount_in_paise,
+            'currency': 'INR',
+            'key_id': RAZORPAY_KEY_ID,
+            'plan_name': 'Business'
+        })
+        
+    except Exception as e:
+        return jsonify({'message': f'Failed to create order: {str(e)}'}), 500
+
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -253,6 +307,7 @@ def register():
     password = data.get('password')
     org_name = data.get('org_name')
     org_type = data.get('org_type') # 'Individual' or 'Business'
+    payment_info = data.get('payment_info') # { razorpay_order_id, razorpay_payment_id, razorpay_signature }
     
     if not email or not password or not org_name or not org_type:
         return jsonify({'message': 'Missing required fields!'}), 400
@@ -272,10 +327,36 @@ def register():
     slug = slugify(org_name)
     username = email.split('@')[0]
     
-    # All new registrations start on INDIVIDUAL tier with 1 node limit
-    tier = 'INDIVIDUAL'
+    tier = 'FREE'
     node_limit = 1
     
+    # If Business tier registration, verify payment
+    if org_type == 'Business':
+        if not payment_info:
+            return jsonify({'message': 'Payment details are required for Business tier registration.'}), 400
+            
+        razorpay_order_id = payment_info.get('razorpay_order_id')
+        razorpay_payment_id = payment_info.get('razorpay_payment_id')
+        razorpay_signature = payment_info.get('razorpay_signature')
+        
+        if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+            return jsonify({'message': 'Invalid payment verification details.'}), 400
+            
+        try:
+            # Verify signature
+            params_dict = {
+                'razorpay_order_id': razorpay_order_id,
+                'razorpay_payment_id': razorpay_payment_id,
+                'razorpay_signature': razorpay_signature
+            }
+            razorpay_client.utility.verify_payment_signature(params_dict)
+            
+            # Signature verified -> Set tier to BUSINESS and limit to 10
+            tier = 'BUSINESS'
+            node_limit = 10
+        except Exception as e:
+            return jsonify({'message': f'Payment verification failed: {str(e)}'}), 400
+            
     password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
     conn = get_db_connection()
@@ -288,7 +369,6 @@ def register():
             return jsonify({'message': 'User or email already exists!'}), 400
             
         # 2. Create Organization
-        # Check if slug exists, if so append unique suffix
         base_slug = slug
         counter = 1
         while True:
@@ -310,11 +390,22 @@ def register():
         )
         user_id = cur.fetchone()['user_id']
         
-        # 4. Create Membership (New Multi-tenant Architecture)
+        # 4. Create Membership
         cur.execute(
             "INSERT INTO memberships (user_id, org_id, role, is_default) VALUES (%s, %s, %s, %s)",
             (user_id, org_id, 'ADMIN', True)
         )
+        
+        # 5. Log Transaction if Business payment was verified
+        if org_type == 'Business':
+            # Fetch business plan plan_id and price
+            cur.execute("SELECT plan_id, price_monthly FROM pricing_plans WHERE slug = 'business'")
+            plan = cur.fetchone()
+            if plan:
+                cur.execute("""
+                    INSERT INTO transactions (org_id, plan_id, amount, razorpay_order_id, razorpay_payment_id, status)
+                    VALUES (%s, %s, %s, %s, %s, 'success')
+                """, (str(org_id), plan['plan_id'], plan['price_monthly'], razorpay_order_id, razorpay_payment_id))
         
         conn.commit()
     except Exception as e:

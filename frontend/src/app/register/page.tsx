@@ -41,23 +41,104 @@ export default function RegisterPage() {
         setLoading(true);
 
         try {
-            const response = await apiFetch('/api/auth/register', {
-                method: 'POST',
-                body: JSON.stringify({ email, password, org_name: orgName, org_type: orgType }),
-            });
+            if (orgType === 'Business') {
+                // 1. Create registration payment order
+                const orderResp = await apiFetch('/api/auth/register-order', {
+                    method: 'POST',
+                    body: JSON.stringify({ email, org_name: orgName })
+                });
+                const orderData = await orderResp.json();
+                if (!orderResp.ok) throw new Error(orderData.message || orderData.error || 'Failed to create payment order');
 
-            const data = await response.json();
+                // 2. Load Razorpay script if not already loaded
+                if (!(window as any).Razorpay) {
+                    await new Promise<void>((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                        script.async = true;
+                        script.onload = () => resolve();
+                        script.onerror = () => reject(new Error('Failed to load Razorpay SDK'));
+                        document.body.appendChild(script);
+                    });
+                }
 
-            if (response.ok) {
-                setSuccess(true);
-                setTimeout(() => router.push('/login'), 2000);
+                // 3. Open Razorpay modal
+                const options = {
+                    key: orderData.key_id,
+                    amount: orderData.amount,
+                    currency: orderData.currency,
+                    name: "SysLogger",
+                    description: "Business Tier Registration",
+                    order_id: orderData.order_id,
+                    handler: async (response: any) => {
+                        try {
+                            setLoading(true);
+                            // 4. Complete registration with payment info
+                            const regResp = await apiFetch('/api/auth/register', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    email,
+                                    password,
+                                    org_name: orgName,
+                                    org_type: orgType,
+                                    payment_info: {
+                                        razorpay_order_id: response.razorpay_order_id,
+                                        razorpay_payment_id: response.razorpay_payment_id,
+                                        razorpay_signature: response.razorpay_signature
+                                    }
+                                })
+                            });
+                            const regData = await regResp.json();
+                            if (regResp.ok) {
+                                setSuccess(true);
+                                setTimeout(() => router.push('/login'), 2000);
+                            } else {
+                                setError(regData.message || regData.error || 'Registration failed');
+                            }
+                        } catch (err: any) {
+                            setError(err.message || 'Registration failed after payment verification.');
+                        } finally {
+                            setLoading(false);
+                        }
+                    },
+                    prefill: {
+                        email: email
+                    },
+                    theme: {
+                        color: "#F97316"
+                    },
+                    modal: {
+                        ondismiss: () => {
+                            setLoading(false);
+                        }
+                    }
+                };
+
+                const rzp = new (window as any).Razorpay(options);
+                rzp.open();
+
             } else {
-                setError(data.message || data.error || 'Registration failed');
+                // Individual signup flow
+                const response = await apiFetch('/api/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ email, password, org_name: orgName, org_type: orgType }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    setSuccess(true);
+                    setTimeout(() => router.push('/login'), 2000);
+                } else {
+                    setError(data.message || data.error || 'Registration failed');
+                }
             }
-        } catch (err) {
-            setError('Connection failed. Please check your backend.');
+        } catch (err: any) {
+            setError(err.message || 'Connection failed. Please check your backend.');
         } finally {
-            setLoading(false);
+            if (orgType !== 'Business') {
+                setLoading(false);
+            }
         }
     };
 
@@ -176,17 +257,20 @@ export default function RegisterPage() {
                             </div>
                         </div>
 
-                        {/* Tier Info */}
+                        {/* Dynamic Tier Info */}
                         <div className="px-4 py-3 bg-zinc-50 rounded-2xl border border-zinc-100 flex items-start gap-3 mt-4">
                             <div className="p-1.5 bg-white rounded-lg ring-1 ring-zinc-200">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                             </div>
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-zinc-900">
-                                    Free-Tier Initialization
+                                    {orgType === 'Individual' ? 'Free-Tier Initialization' : 'Business-Tier Subscription'}
                                 </p>
-                                <p className="text-[10px] text-zinc-500 font-medium">
-                                    All new hubs start on the Free tier (10 nodes). Upgrade to Pro (5) or Business (30) anytime from your dashboard.
+                                <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
+                                    {orgType === 'Individual' 
+                                        ? 'All new hubs start on the Free tier (1 node). Upgrade to Pro or Business anytime from your dashboard.'
+                                        : 'Upgrading to Business tier (10 nodes) requires a monthly payment of ₹199. You will pay via Razorpay to complete registration.'
+                                    }
                                 </p>
                             </div>
                         </div>
@@ -207,9 +291,9 @@ export default function RegisterPage() {
                             disabled={loading}
                             className="w-full bg-zinc-900 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all disabled:opacity-50 mt-4 group shadow-xl shadow-zinc-900/10"
                         >
-                            {loading ? 'Creating Account...' : (
+                            {loading ? 'Processing...' : (
                                 <>
-                                    Complete Initialization
+                                    {orgType === 'Individual' ? 'Complete Initialization' : 'Pay & Register'}
                                     <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                 </>
                             )}
