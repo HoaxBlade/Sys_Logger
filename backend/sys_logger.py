@@ -231,6 +231,21 @@ def handle_cctv_frame(data):
 
 # --- AUTHENTICATION ROUTES ---
 
+def validate_password_strength(password):
+    if not password:
+        return False, "Password cannot be empty."
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not re.search(r"[A-Z]", password):
+        return False, "Password must contain at least one uppercase letter."
+    if not re.search(r"[a-z]", password):
+        return False, "Password must contain at least one lowercase letter."
+    if not re.search(r"\d", password):
+        return False, "Password must contain at least one digit."
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return False, "Password must contain at least one special character."
+    return True, ""
+
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -241,6 +256,11 @@ def register():
     
     if not email or not password or not org_name or not org_type:
         return jsonify({'message': 'Missing required fields!'}), 400
+
+    # Password complexity check
+    is_strong, err_msg = validate_password_strength(password)
+    if not is_strong:
+        return jsonify({'message': err_msg}), 400
         
     def slugify(text):
         text = text.lower().strip()

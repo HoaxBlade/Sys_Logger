@@ -18,10 +18,27 @@ export default function RegisterPage() {
     const [showPassword, setShowPassword] = useState(false);
     const router = useRouter();
 
+    const validatePassword = (pwd: string): string | null => {
+        if (!pwd) return "Password cannot be empty.";
+        if (pwd.length < 8) return "Password must be at least 8 characters long.";
+        if (!/[A-Z]/.test(pwd)) return "Password must contain at least one uppercase letter.";
+        if (!/[a-z]/.test(pwd)) return "Password must contain at least one lowercase letter.";
+        if (!/\d/.test(pwd)) return "Password must contain at least one digit.";
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) return "Password must contain at least one special character.";
+        return null;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
         setError('');
+
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            setError(passwordError);
+            return;
+        }
+
+        setLoading(true);
 
         try {
             const response = await apiFetch('/api/auth/register', {
