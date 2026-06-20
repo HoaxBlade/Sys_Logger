@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Lock, Mail, ChevronRight, AlertCircle, User, Briefcase, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { Activity, Lock, Mail, ChevronRight, AlertCircle, User, Briefcase, Zap, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '../components/hooks/apiUtils';
@@ -11,7 +11,7 @@ export default function RegisterPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [orgName, setOrgName] = useState('');
-    const [orgType, setOrgType] = useState<'Individual' | 'Business'>('Individual');
+    const [orgType, setOrgType] = useState<'Individual' | 'Pro' | 'Business'>('Individual');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -41,11 +41,11 @@ export default function RegisterPage() {
         setLoading(true);
 
         try {
-            if (orgType === 'Business') {
+            if (orgType === 'Business' || orgType === 'Pro') {
                 // 1. Create registration payment order
                 const orderResp = await apiFetch('/api/auth/register-order', {
                     method: 'POST',
-                    body: JSON.stringify({ email, org_name: orgName })
+                    body: JSON.stringify({ email, org_name: orgName, plan_slug: orgType.toLowerCase() })
                 });
                 const orderData = await orderResp.json();
                 if (!orderResp.ok) throw new Error(orderData.message || orderData.error || 'Failed to create payment order');
@@ -68,7 +68,7 @@ export default function RegisterPage() {
                     amount: orderData.amount,
                     currency: orderData.currency,
                     name: "SysLogger",
-                    description: "Business Tier Registration",
+                    description: `${orgType} Tier Registration`,
                     order_id: orderData.order_id,
                     handler: async (response: any) => {
                         try {
@@ -136,7 +136,7 @@ export default function RegisterPage() {
         } catch (err: any) {
             setError(err.message || 'Connection failed. Please check your backend.');
         } finally {
-            if (orgType !== 'Business') {
+            if (orgType === 'Individual') {
                 setLoading(false);
             }
         }
@@ -188,17 +188,25 @@ export default function RegisterPage() {
                             <button
                                 type="button"
                                 onClick={() => setOrgType('Individual')}
-                                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${orgType === 'Individual' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-400'}`}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${orgType === 'Individual' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-400'}`}
                             >
-                                <User className="w-4 h-4" />
+                                <User className="w-3.5 h-3.5" />
                                 Individual
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setOrgType('Business')}
-                                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${orgType === 'Business' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-400'}`}
+                                onClick={() => setOrgType('Pro')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${orgType === 'Pro' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-400'}`}
                             >
-                                <Briefcase className="w-4 h-4" />
+                                <Zap className="w-3.5 h-3.5" />
+                                Pro
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setOrgType('Business')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${orgType === 'Business' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-400'}`}
+                            >
+                                <Briefcase className="w-3.5 h-3.5" />
                                 Business
                             </button>
                         </div>
@@ -264,13 +272,12 @@ export default function RegisterPage() {
                             </div>
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-zinc-900">
-                                    {orgType === 'Individual' ? 'Free-Tier Initialization' : 'Business-Tier Subscription'}
+                                    {orgType === 'Individual' ? 'Free-Tier Initialization' : `${orgType}-Tier Subscription`}
                                 </p>
                                 <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
-                                    {orgType === 'Individual' 
-                                        ? 'All new hubs start on the Free tier (1 node). Upgrade to Pro or Business anytime from your dashboard.'
-                                        : 'Upgrading to Business tier (10 nodes) requires a monthly payment of ₹199. You will pay via Razorpay to complete registration.'
-                                    }
+                                    {orgType === 'Individual' && 'All new hubs start on the Free tier (1 node). Upgrade to Pro or Business anytime from your dashboard.'}
+                                    {orgType === 'Pro' && 'Upgrading to Pro tier (5 nodes) requires a monthly payment of ₹100. You will pay via Razorpay to complete registration.'}
+                                    {orgType === 'Business' && 'Upgrading to Business tier (30 nodes) requires a monthly payment of ₹1000. You will pay via Razorpay to complete registration.'}
                                 </p>
                             </div>
                         </div>
