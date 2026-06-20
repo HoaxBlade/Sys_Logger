@@ -4,8 +4,9 @@ import { proxyDelete } from '../../proxyUtils';
 export async function DELETE(
     req: NextRequest,
     
-    { params }: { params: { cameraId: string } }
+    { params }: { params: Promise<{ cameraId: string }> }
 ) {
     const token = req.headers.get('Authorization');
-    return proxyDelete(`/api/cameras/${params.cameraId}`, token);
+    const { cameraId } = await params;
+    return proxyDelete(`/api/cameras/${cameraId}`, token);
 }
